@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env
+*.pem
+*.pfx
+*.key
+*.crt
+client.p12
+certs/
+.DS_Store
+coverage/

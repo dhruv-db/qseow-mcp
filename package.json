@@ -1,0 +1,29 @@
+{
+  "name": "qlik-sense-mcp",
+  "version": "0.0.1",
+  "description": "MCP server for Qlik Sense Enterprise on Windows (client-managed): Repository, Engine/QIX, and Proxy APIs as Model Context Protocol tools.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": {
+    "qlik-sense-mcp": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "test": "vitest run"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "qlik",
+    "qlik-sense",
+    "qseow",
+    "mcp",
+    "model-context-protocol",
+    "qrs",
+    "qix",
+    "enigma"
+  ]
+}
