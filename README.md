@@ -51,9 +51,20 @@ Two modes, both standard QSEoW patterns. Header-authentication virtual proxies a
 
 ### JWT and the engine
 
-JWT authentication is verified working for the **entire QRS/REST surface** (all admin tools). Engine tools over JWT additionally require the WebSocket upgrade to pass Qlik's **Cross-Site WebSocket Hijacking (CSWSH)** protection, which validates `Origin` against the virtual proxy's `websocketCrossOriginWhiteList`. In our validation environment — reached through a port-forwarding tunnel, so the client-visible host never matches the site's own hostname — the upgrade is rejected 403 regardless of `Origin`/`Host` combination, while REST over the same JWT succeeds. Confirmed in the proxy audit log: authentication succeeds, then the CSWSH check fails.
+JWT authentication is verified working for the **entire QRS/REST surface** (all admin tools). Engine tools over JWT are currently blocked in our validation environment: the WebSocket upgrade returns 403, and the proxy audit log shows authentication *succeeding* and then Qlik's **Cross-Site WebSocket Hijacking (CSWSH)** check failing.
 
-If you deploy with a real DNS name and connect directly, add that origin to the virtual proxy whitelist and JWT should cover engine tools too. Until that is verified on a directly-addressable host, treat **certificate mode as the supported path for engine tools** and JWT as fully supported for governance/REST tools. Contributions confirming JWT+engine on a direct-DNS deployment are welcome.
+What we ruled out — all still 403:
+
+- `Origin` absent, matching the request host, and every entry present in the virtual proxy's `websocketCrossOriginWhiteList` (with and without port)
+- `Host` header overrides
+- `Authorization: Bearer` on the upgrade, an established session cookie from a prior REST call, and both together
+- `xrfkey` as query parameter, as `X-Qlik-Xrfkey` header, and both
+- Running the client **on the Qlik server itself**, localhost to localhost, with no tunnel or port-forward in the path — this rules out network topology as the cause
+- Proxy service restart after every virtual proxy change
+
+One genuine misconfiguration was found and fixed along the way: a virtual proxy created through the QRS API has an **empty `loadBalancingServerNodes`**, so no engine is reachable through it until a server node is attached. Fixing that did not resolve the CSWSH rejection.
+
+Until this is understood, **certificate mode is the supported path for engine tools**; JWT is fully supported for governance/REST tools. If you have JWT + engine WebSocket working against QSEoW, the upgrade request headers from a working session would be very welcome in an issue.
 
 ## Quick start
 
