@@ -29,12 +29,18 @@ export function registerAdminTools(server: McpServer, qrs: QrsClient, cfg: Confi
     {},
     async () => {
       const rows = await qrs.get<any[]>("/qrs/servicestatus/full");
-      const TYPE: Record<number, string> = { 0: "Repository", 1: "Proxy", 2: "Scheduler", 3: "Engine", 4: "Printing" };
-      const STATE: Record<number, string> = { 0: "NoCommunication", 1: "Running", 2: "Disabled" };
+      // QRS enums: serviceType 0 Repository, 1 Proxy, 2 Scheduler, 3 Engine,
+      // 4 AppMigration, 5 Printing. serviceState 0 Initializing,
+      // 1 CertificatesNotInstalled, 2 Running, 3 NoCommunication, 4 Disabled,
+      // 5 Unknown. Verified against a live May 2026 site — all healthy
+      // services report serviceState 2.
+      const TYPE: Record<number, string> = { 0: "Repository", 1: "Proxy", 2: "Scheduler", 3: "Engine", 4: "AppMigration", 5: "Printing" };
+      const STATE: Record<number, string> = { 0: "Initializing", 1: "CertificatesNotInstalled", 2: "Running", 3: "NoCommunication", 4: "Disabled", 5: "Unknown" };
       return text(rows.map((r) => ({
         node: r.serverNodeConfiguration?.hostName ?? r.serverNodeConfiguration?.name,
-        service: TYPE[r.serviceType] ?? r.serviceType,
-        state: STATE[r.serviceState] ?? r.serviceState,
+        service: TYPE[r.serviceType] ?? `type-${r.serviceType}`,
+        state: STATE[r.serviceState] ?? `state-${r.serviceState}`,
+        healthy: r.serviceState === 2,
       })));
     },
   );
