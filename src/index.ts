@@ -1,13 +1,37 @@
-/**
- * qlik-sense-mcp — MCP server for Qlik Sense Enterprise on Windows.
- *
- * Pre-alpha scaffold. Entry point will wire:
- *   - @modelcontextprotocol/sdk server (stdio + streamable HTTP transports)
- *   - QRS client (REST, cert/header/jwt auth, Xrfkey handling)
- *   - Engine client (enigma.js over WSS)
- *   - Tool registries per group: governance, data, objects, script, sessions, ops
- *
- * Mutating tools are registered only when QSEOW_ALLOW_MUTATIONS=true.
- */
+#!/usr/bin/env node
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { loadConfig } from "./config.js";
+import { QrsClient } from "./qrs.js";
+import { EngineClient } from "./engine.js";
+import { registerAdminTools } from "./tools/admin.js";
+import { registerAnalystTools } from "./tools/analyst.js";
+import { registerDeveloperTools } from "./tools/developer.js";
 
-console.error("qlik-sense-mcp: scaffold only — no tools registered yet");
+async function main(): Promise<void> {
+  const cfg = loadConfig();
+  const server = new McpServer({ name: "qlik-sense-mcp", version: "0.1.0" });
+
+  const qrs = new QrsClient(cfg);
+  const engine = new EngineClient(cfg);
+
+  if (cfg.toolGroups.has("admin")) registerAdminTools(server, qrs, cfg);
+  if (cfg.toolGroups.has("analyst")) registerAnalystTools(server, engine);
+  if (cfg.toolGroups.has("developer")) registerDeveloperTools(server, engine, qrs, cfg);
+
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+  console.error(
+    `qlik-sense-mcp 0.1.0 | host=${cfg.host} auth=${cfg.authMode}` +
+    ` groups=[${[...cfg.toolGroups].join(",")}] mutations=${cfg.allowMutations ? "ENABLED" : "read-only"}`,
+  );
+
+  const shutdown = async () => { await engine.close(); process.exit(0); };
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
+}
+
+main().catch((err) => {
+  console.error("fatal:", err);
+  process.exit(1);
+});

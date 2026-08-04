@@ -9,3 +9,4 @@ client.p12
 certs/
 .DS_Store
 coverage/
+package-lock.json
