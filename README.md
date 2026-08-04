@@ -45,26 +45,26 @@ Mutating tools (`set_script`, `reload_app`, `create_app`, `copy_app`, `publish_a
 
 Two modes, both standard QSEoW patterns. Header-authentication virtual proxies are deliberately **not** supported: any client that can reach the proxy can assert any identity, which is not a footing to build an agent tool on.
 
-**`certificate`** — QMC-exported client certificates against QRS `:4242` and Engine `:4747`. This is the service-to-service path and currently the only mode with full tool coverage. Export via QMC, or `POST /qrs/certificatedistribution/exportcertificates`.
+**`certificate`** — QMC-exported client certificates against QRS `:4242` and Engine `:4747`. The service-to-service path; full tool coverage. Export via QMC, or `POST /qrs/certificatedistribution/exportcertificates`.
 
 **`jwt`** — a signed, expiring token through a JWT virtual proxy on `:443`. Carries a real per-user identity, so it's the right mode when the agent should act as a person and inherit that person's section-access and security rules.
 
-### JWT and the engine
+### JWT and the engine WebSocket (CSWSH)
 
-JWT authentication is verified working for the **entire QRS/REST surface** (all admin tools). Engine tools over JWT are currently blocked in our validation environment: the WebSocket upgrade returns 403, and the proxy audit log shows authentication *succeeding* and then Qlik's **Cross-Site WebSocket Hijacking (CSWSH)** check failing.
+Both modes have full tool coverage. Getting JWT working against the engine takes a specific handshake, documented here because it is easy to get wrong and the failure mode is an opaque `403` with an empty body.
 
-What we ruled out — all still 403:
+A virtual proxy guards WebSocket upgrades with Cross-Site WebSocket Hijacking protection. Presenting the JWT as a bearer token on the upgrade **fails** — the proxy expects what a browser sends:
 
-- `Origin` absent, matching the request host, and every entry present in the virtual proxy's `websocketCrossOriginWhiteList` (with and without port)
-- `Host` header overrides
-- `Authorization: Bearer` on the upgrade, an established session cookie from a prior REST call, and both together
-- `xrfkey` as query parameter, as `X-Qlik-Xrfkey` header, and both
-- Running the client **on the Qlik server itself**, localhost to localhost, with no tunnel or port-forward in the path — this rules out network topology as the cause
-- Proxy service restart after every virtual proxy change
+1. `GET /{prefix}/qps/csrftoken` with `Authorization: Bearer <jwt>`. The response carries the token in a **`qlik-csrf-token` response header** (not a cookie) plus the session in `Set-Cookie`.
+2. Open the WebSocket at `wss://host/{prefix}/app/engineData?qlik-csrf-token=<token>` sending that **session cookie** — not the bearer token.
 
-One genuine misconfiguration was found and fixed along the way: a virtual proxy created through the QRS API has an **empty `loadBalancingServerNodes`**, so no engine is reachable through it until a server node is attached. Fixing that did not resolve the CSWSH rejection.
+The server handles this automatically and caches the result. Caching is not just an optimization: every bearer-authenticated request mints a *new* Qlik session, and users have a parallel-session limit, so re-authenticating per call eventually gets you `OnMaxParallelSessionsExceeded` from the engine.
 
-Until this is understood, **certificate mode is the supported path for engine tools**; JWT is fully supported for governance/REST tools. If you have JWT + engine WebSocket working against QSEoW, the upgrade request headers from a working session would be very welcome in an issue.
+Things that are **not** the cause, in case you are debugging a similar 403: `Origin` (a browser sends one with a port and is accepted), `Host`, ports, tunnels or port-forwards, `xrfkey`, or entries in the virtual proxy's `websocketCrossOriginWhiteList` — that list takes bare hostnames and did not affect the outcome either way.
+
+One genuine misconfiguration worth checking on any scripted setup: a virtual proxy created through the QRS API comes up with an **empty `loadBalancingServerNodes`**, so no engine is reachable through it until a server node is attached.
+
+To debug proxy authentication generally, enable debug logging: create `%ProgramData%\Qlik\Sense\Proxy\LocalLogConfig.xml` with a `QSRollingFileAppender` at `threshold=debug` bound to the `Audit.Proxy`, `System.Proxy`, and `Security.Proxy` loggers, then restart the proxy. It logs every request header the proxy actually received, which is the fastest way to compare a working browser upgrade against your client.
 
 ## Quick start
 

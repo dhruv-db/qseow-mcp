@@ -1,17 +1,33 @@
 import https from "node:https";
 import { randomBytes } from "node:crypto";
 import type { Config } from "./config.js";
+import type { ProxySession } from "./session.js";
 
 /** QRS REST client. Certificate mode talks to :4242 directly as an internal
- *  service identity; JWT mode goes through the virtual proxy on :443. */
+ *  service identity; JWT mode goes through the virtual proxy on :443, reusing
+ *  one bootstrapped session rather than re-authenticating per call. */
 export class QrsClient {
-  constructor(private cfg: Config) {}
+  constructor(private cfg: Config, private session?: ProxySession) {}
 
   private xrfkey(): string {
     return randomBytes(8).toString("hex"); // 16 chars
   }
 
+  /** Socket-level failures (a pooled connection the proxy already closed) are
+   *  transient; one retry on a fresh connection clears them. */
   async request<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
+    try {
+      return await this.attempt<T>(method, path, body);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (/socket hang up|ECONNRESET|EPIPE|socket closed/i.test(msg)) {
+        return await this.attempt<T>(method, path, body);
+      }
+      throw e;
+    }
+  }
+
+  private async attempt<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
     const cfg = this.cfg;
     const xrf = this.xrfkey();
     const viaProxy = cfg.authMode === "jwt";
@@ -25,7 +41,11 @@ export class QrsClient {
       Accept: "application/json",
     };
     if (viaProxy) {
-      headers.Authorization = `Bearer ${cfg.jwt}`;
+      if (this.session) {
+        headers.Cookie = (await this.session.ensure()).cookie;
+      } else {
+        headers.Authorization = `Bearer ${cfg.jwt}`;
+      }
     } else {
       headers["X-Qlik-User"] = `UserDirectory=${cfg.certUser.directory}; UserId=${cfg.certUser.id}`;
     }

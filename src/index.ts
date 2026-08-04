@@ -3,6 +3,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { loadConfig } from "./config.js";
 import { QrsClient } from "./qrs.js";
+import { ProxySession } from "./session.js";
 import { EngineClient } from "./engine.js";
 import { registerAdminTools } from "./tools/admin.js";
 import { registerAnalystTools } from "./tools/analyst.js";
@@ -12,8 +13,9 @@ async function main(): Promise<void> {
   const cfg = loadConfig();
   const server = new McpServer({ name: "qlik-sense-mcp", version: "0.1.0" });
 
-  const qrs = new QrsClient(cfg);
-  const engine = new EngineClient(cfg);
+  const session = cfg.authMode === "jwt" ? new ProxySession(cfg) : undefined;
+  const qrs = new QrsClient(cfg, session);
+  const engine = new EngineClient(cfg, session);
 
   if (cfg.toolGroups.has("admin")) registerAdminTools(server, qrs, cfg);
   if (cfg.toolGroups.has("analyst")) registerAnalystTools(server, engine);

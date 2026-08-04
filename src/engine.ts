@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 import WebSocket from "ws";
 import type { Config } from "./config.js";
+import type { ProxySession } from "./session.js";
 
 const require = createRequire(import.meta.url);
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -26,16 +27,19 @@ interface CachedSession {
 export class EngineClient {
   private cached?: CachedSession;
   private idleTimer?: ReturnType<typeof setInterval>;
+  private cachedCookie?: string;
 
-  constructor(private cfg: Config) {
+  constructor(private cfg: Config, private session?: ProxySession) {
     this.idleTimer = setInterval(() => this.reapIdle(), 60_000);
     this.idleTimer.unref?.();
   }
 
-  private wsUrl(): string {
+  private async wsUrl(): Promise<string> {
     const cfg = this.cfg;
     if (cfg.authMode === "jwt") {
-      return `wss://${cfg.host}:${cfg.proxyPort}/${cfg.vpPrefix}/app/engineData`;
+      // The proxy's CSWSH check requires a server-issued CSRF token on the URL.
+      const { csrfToken } = await this.session!.ensure();
+      return `wss://${cfg.host}:${cfg.proxyPort}/${cfg.vpPrefix}/app/engineData?qlik-csrf-token=${encodeURIComponent(csrfToken)}`;
     }
     return `wss://${cfg.host}:${cfg.enginePort}/app/engineData`;
   }
@@ -43,9 +47,12 @@ export class EngineClient {
   private createSocket(url: string): WebSocket {
     const cfg = this.cfg;
     if (cfg.authMode === "jwt") {
+      // Must be the session cookie, not the bearer token: a bearer on the
+      // upgrade re-authenticates and the CSWSH check rejects it.
       return new WebSocket(url, {
         rejectUnauthorized: cfg.tlsVerify,
-        headers: { Authorization: `Bearer ${cfg.jwt}` },
+        origin: `https://${cfg.host}:${cfg.proxyPort}`,
+        headers: { Cookie: this.cachedCookie! },
       });
     }
     return new WebSocket(url, {
@@ -65,9 +72,12 @@ export class EngineClient {
       this.cached.lastUsed = Date.now();
       return this.cached.global;
     }
+    if (this.cfg.authMode === "jwt") {
+      this.cachedCookie = (await this.session!.ensure()).cookie;
+    }
     const session = enigma.create({
       schema,
-      url: this.wsUrl(),
+      url: await this.wsUrl(),
       createSocket: (url: string) => this.createSocket(url),
       suspendOnClose: false,
     });
