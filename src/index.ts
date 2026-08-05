@@ -9,14 +9,18 @@ import { registerAdminTools } from "./tools/admin.js";
 import { registerAnalystTools } from "./tools/analyst.js";
 import { registerDeveloperTools } from "./tools/developer.js";
 
+const VERSION = "0.2.0";
+
 async function main(): Promise<void> {
   const cfg = loadConfig();
-  const server = new McpServer({ name: "qlik-sense-mcp", version: "0.1.0" });
+  const server = new McpServer({ name: "qseow-mcp", version: VERSION });
 
   const session = cfg.authMode === "jwt" ? new ProxySession(cfg) : undefined;
   const qrs = new QrsClient(cfg, session);
   const engine = new EngineClient(cfg, session);
 
+  // Mutating tools are gated at REGISTRATION: with mutations disabled they
+  // are never added to the server, so tools/list is honestly read-only.
   if (cfg.toolGroups.has("admin")) registerAdminTools(server, qrs, cfg);
   if (cfg.toolGroups.has("analyst")) registerAnalystTools(server, engine);
   if (cfg.toolGroups.has("developer")) registerDeveloperTools(server, engine, qrs, cfg);
@@ -24,8 +28,8 @@ async function main(): Promise<void> {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error(
-    `qlik-sense-mcp 0.1.0 | host=${cfg.host} auth=${cfg.authMode}` +
-    ` groups=[${[...cfg.toolGroups].join(",")}] mutations=${cfg.allowMutations ? "ENABLED" : "read-only"}`,
+    `qseow-mcp ${VERSION} | host=${cfg.host} auth=${cfg.authMode}` +
+    ` groups=[${[...cfg.toolGroups].join(",")}] mutations=${cfg.allowMutations ? "ENABLED" : "read-only (mutating tools not registered)"}`,
   );
 
   const shutdown = async () => { await engine.close(); process.exit(0); };

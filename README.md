@@ -39,11 +39,13 @@ Expose only what a given deployment needs with `QSEOW_TOOL_GROUPS`.
 | `list_extensions` / `list_data_connections` | Extension and connection inventory |
 | `qrs_search` | Any QRS entity + filter expression — the governance power tool |
 
-Mutating tools (`set_script`, `reload_app`, `create_app`, `copy_app`, `publish_app`, `start_task`) **refuse to execute unless `QSEOW_ALLOW_MUTATIONS=true`** — they are registered and visible to the client, but every call is rejected at the handler until the flag is set. Default is refuse-all.
+Mutating tools (`set_script`, `reload_app`, `create_app`, `copy_app`, `publish_app`, `start_task`) are **gated at registration**: unless `QSEOW_ALLOW_MUTATIONS=true`, they are never registered, so a read-only deployment advertises a genuinely read-only tool surface in `tools/list`. Default is read-only.
 
-> **Known limitation (v0.1.0):** because those tools are still advertised, a client may attempt one and consume a turn discovering it is disabled. Gating registration itself — so a read-only deployment exposes only the 20 read tools — is planned, alongside `readOnlyHint`/`destructiveHint` annotations.
->
-> **Also note:** `qrs_search` returns raw QRS payloads. Unlike `list_data_connections`, it does **not** redact credential fields, so `qrs_search{entity:"dataconnection", full:true}` can expose connection secrets. Restrict the tool groups you expose (`QSEOW_TOOL_GROUPS`) if that matters in your deployment.
+Every tool carries MCP tool annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) so clients that honor them can apply their own policy — e.g. `reload_app`/`set_script`/`start_task` are flagged destructive; selection tools are non-destructive session-state mutations.
+
+Credential redaction applies to **every** QRS egress path: `list_data_connections` and generic `qrs_search` (any entity type, condensed or `full:true`) recursively mask credential-bearing fields (`password`, `passphrase`, `clientsecret`, ...) and secrets embedded in connection strings (`PWD=...`, `apikey=...`). Empty/null credential fields pass through unmasked — "no credential present" is a legitimate signal.
+
+All list tools are paged (`offset`/`limit`, envelope `{total, offset, returned, truncated, items}`) so a site with thousands of apps or users cannot blow the client's context window.
 
 ## Authentication
 

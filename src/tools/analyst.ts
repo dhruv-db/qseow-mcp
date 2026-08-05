@@ -1,27 +1,38 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { EngineClient } from "../engine.js";
+import { text, pageParams, paginate } from "./shared.js";
 
-const text = (v: unknown) => ({ content: [{ type: "text" as const, text: typeof v === "string" ? v : JSON.stringify(v, null, 2) }] });
+// Engine tools operate on a closed domain (the Qlik site). Selections mutate
+// only session state — no persisted data changes — so selection tools carry
+// readOnlyHint: false but destructiveHint: false.
+const READ = { readOnlyHint: true, openWorldHint: false };
+const SESSION_MUT = { readOnlyHint: false, destructiveHint: false, openWorldHint: false };
 
 export function registerAnalystTools(server: McpServer, engine: EngineClient): void {
-  server.tool(
+  server.registerTool(
     "list_engine_apps",
-    "List apps visible to the current engine session (id, name, last reload).",
-    {},
-    async () => {
+    {
+      description: "List apps visible to the current engine session (id, name, last reload). Paged.",
+      inputSchema: { ...pageParams },
+      annotations: READ,
+    },
+    async ({ offset, limit }) => {
       const g = await engine.global();
       const docs = await g.getDocList();
-      return text(docs.map((d: any) => ({
+      return text(paginate(docs.map((d: any) => ({
         id: d.qDocId, name: d.qDocName, lastReload: d.qLastReloadTime, fileSizeBytes: d.qFileSize,
-      })));
+      })), offset, limit));
     },
   );
 
-  server.tool(
+  server.registerTool(
     "get_app_data_model",
-    "Tables and fields of an app's data model — the map an analyst needs before querying.",
-    { appId: z.string().describe("App id (GUID)") },
+    {
+      description: "Tables and fields of an app's data model — the map an analyst needs before querying.",
+      inputSchema: { appId: z.string().describe("App id (GUID)") },
+      annotations: READ,
+    },
     async ({ appId }) => {
       const app = await engine.app(appId);
       const layout = await app.getAppLayout();
@@ -40,12 +51,15 @@ export function registerAnalystTools(server: McpServer, engine: EngineClient): v
     },
   );
 
-  server.tool(
+  server.registerTool(
     "evaluate_expression",
-    "Evaluate a Qlik expression against an app in the current selection state, e.g. \"Sum(Sales)\" or \"Count(distinct Customer)\".",
     {
-      appId: z.string().describe("App id (GUID)"),
-      expression: z.string().describe("Qlik expression without leading ="),
+      description: "Evaluate a Qlik expression against an app in the current selection state, e.g. \"Sum(Sales)\" or \"Count(distinct Customer)\".",
+      inputSchema: {
+        appId: z.string().describe("App id (GUID)"),
+        expression: z.string().describe("Qlik expression without leading ="),
+      },
+      annotations: READ,
     },
     async ({ appId, expression }) => {
       const app = await engine.app(appId);
@@ -54,15 +68,18 @@ export function registerAnalystTools(server: McpServer, engine: EngineClient): v
     },
   );
 
-  server.tool(
+  server.registerTool(
     "create_hypercube",
-    "Build a hypercube (group-by query) over an app: dimensions + measure expressions, returns tabular data honoring current selections. The core analyst query tool.",
     {
-      appId: z.string().describe("App id (GUID)"),
-      dimensions: z.array(z.string()).describe("Field names or dimension expressions"),
-      measures: z.array(z.string()).describe("Measure expressions, e.g. 'Sum(Sales)'"),
-      maxRows: z.number().int().positive().max(10000).optional().describe("Row limit (default 200)"),
-      sortByMeasureDesc: z.number().int().optional().describe("Sort by measure index (0-based), descending"),
+      description: "Build a hypercube (group-by query) over an app: dimensions + measure expressions, returns tabular data honoring current selections. The core analyst query tool.",
+      inputSchema: {
+        appId: z.string().describe("App id (GUID)"),
+        dimensions: z.array(z.string()).describe("Field names or dimension expressions"),
+        measures: z.array(z.string()).describe("Measure expressions, e.g. 'Sum(Sales)'"),
+        maxRows: z.number().int().positive().max(10000).optional().describe("Row limit (default 200)"),
+        sortByMeasureDesc: z.number().int().optional().describe("Sort by measure index (0-based), descending"),
+      },
+      annotations: READ,
     },
     async ({ appId, dimensions, measures, maxRows, sortByMeasureDesc }) => {
       const app = await engine.app(appId);
@@ -105,14 +122,17 @@ export function registerAnalystTools(server: McpServer, engine: EngineClient): v
     },
   );
 
-  server.tool(
+  server.registerTool(
     "get_field_values",
-    "List distinct values of a field with selection state (S=selected, O=optional, X=excluded). Optional search term.",
     {
-      appId: z.string().describe("App id (GUID)"),
-      field: z.string().describe("Field name"),
-      maxValues: z.number().int().positive().max(1000).optional().describe("Limit (default 100)"),
-      searchTerm: z.string().optional().describe("Search within values"),
+      description: "List distinct values of a field with selection state (S=selected, O=optional, X=excluded). Optional search term.",
+      inputSchema: {
+        appId: z.string().describe("App id (GUID)"),
+        field: z.string().describe("Field name"),
+        maxValues: z.number().int().positive().max(1000).optional().describe("Limit (default 100)"),
+        searchTerm: z.string().optional().describe("Search within values"),
+      },
+      annotations: READ,
     },
     async ({ appId, field, maxValues, searchTerm }) => {
       const app = await engine.app(appId);
@@ -141,27 +161,77 @@ export function registerAnalystTools(server: McpServer, engine: EngineClient): v
     },
   );
 
-  server.tool(
+  server.registerTool(
     "select_field_values",
-    "Select values in a field (session-scoped; affects subsequent hypercubes/expressions in this MCP session).",
     {
-      appId: z.string().describe("App id (GUID)"),
-      field: z.string().describe("Field name"),
-      values: z.array(z.string()).describe("Values to select"),
-      toggle: z.boolean().optional().describe("Toggle instead of replace (default false)"),
+      description: "Select values in a field (session-scoped; affects subsequent hypercubes/expressions in this MCP session). Numeric values are matched numerically — pass numbers as numbers (or numeric strings; both work). Returns the resulting selected count so a silently-widened or missed selection is visible.",
+      inputSchema: {
+        appId: z.string().describe("App id (GUID)"),
+        field: z.string().describe("Field name"),
+        values: z.array(z.union([z.string(), z.number()])).describe("Values to select"),
+        toggle: z.boolean().optional().describe("Toggle instead of replace (default false)"),
+      },
+      annotations: SESSION_MUT,
     },
     async ({ appId, field, values, toggle }) => {
       const app = await engine.app(appId);
       const f = await app.getField(field);
-      const ok = await f.selectValues(values.map((v) => ({ qText: v })), toggle ?? false, false);
-      return text({ field, selected: values, applied: ok });
+      // Engine trap (measured on Qlik Cloud AND QSEoW): SelectValues with a
+      // text-only qText for a numeric field does not error — it silently
+      // selects nothing or widens the selection. Numeric field values must be
+      // sent as duals: { qText, qIsNumeric: true, qNumber }. Numeric-looking
+      // strings get the same treatment; for genuine text fields the engine
+      // matches on qText regardless, so the dual form is safe both ways.
+      const fieldValues = values.map((v) => {
+        const n = typeof v === "number" ? v : Number(v);
+        const isNum = typeof v === "number" || (String(v).trim() !== "" && Number.isFinite(n));
+        return isNum
+          ? { qText: String(v), qIsNumeric: true, qNumber: n }
+          : { qText: String(v), qIsNumeric: false };
+      });
+      const readSelection = async () => {
+        const sel = await app.createSessionObject({
+          qInfo: { qType: "mcp-select-verify" },
+          qSelectionObjectDef: {},
+        });
+        try {
+          const layout = await sel.getLayout();
+          const row = (layout.qSelectionObject?.qSelections ?? []).find((s: any) => s.qField === field);
+          return { count: row?.qSelectedCount ?? 0, sample: row?.qSelected as string | undefined };
+        } finally {
+          await app.destroySessionObject(sel.id).catch(() => {});
+        }
+      };
+
+      let ok = await f.selectValues(fieldValues, toggle ?? false, false);
+      let mode = fieldValues.some((v) => v.qIsNumeric) ? "numeric-dual" : "text";
+      let verify: { count: number; sample?: string } | undefined;
+      try {
+        verify = await readSelection();
+        // Edge case: a TEXT field whose values merely look numeric ("2026"
+        // loaded as text) has no numeric representation, so the dual match
+        // can land empty. Retry once text-only and re-verify.
+        const sentNumeric = fieldValues.some((v) => v.qIsNumeric);
+        if (verify.count === 0 && sentNumeric && !(toggle ?? false)) {
+          ok = await f.selectValues(values.map((v) => ({ qText: String(v) })), false, false);
+          mode = "text-fallback";
+          verify = await readSelection();
+        }
+      } catch { /* verification is best-effort */ }
+      return text({
+        field, requested: values, applied: ok, mode,
+        selectedCount: verify?.count, selectedSample: verify?.sample,
+      });
     },
   );
 
-  server.tool(
+  server.registerTool(
     "get_current_selections",
-    "Current selection state across all fields in the session.",
-    { appId: z.string().describe("App id (GUID)") },
+    {
+      description: "Current selection state across all fields in the session.",
+      inputSchema: { appId: z.string().describe("App id (GUID)") },
+      annotations: READ,
+    },
     async ({ appId }) => {
       const app = await engine.app(appId);
       const obj = await app.createSessionObject({
@@ -179,12 +249,15 @@ export function registerAnalystTools(server: McpServer, engine: EngineClient): v
     },
   );
 
-  server.tool(
+  server.registerTool(
     "clear_selections",
-    "Clear selections in one field or all fields.",
     {
-      appId: z.string().describe("App id (GUID)"),
-      field: z.string().optional().describe("Field to clear; omit to clear all"),
+      description: "Clear selections in one field or all fields.",
+      inputSchema: {
+        appId: z.string().describe("App id (GUID)"),
+        field: z.string().optional().describe("Field to clear; omit to clear all"),
+      },
+      annotations: SESSION_MUT,
     },
     async ({ appId, field }) => {
       const app = await engine.app(appId);

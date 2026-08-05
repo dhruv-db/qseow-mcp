@@ -3,44 +3,31 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { EngineClient } from "../engine.js";
 import type { QrsClient } from "../qrs.js";
 import type { Config } from "../config.js";
+import { text } from "./shared.js";
 
-const text = (v: unknown) => ({ content: [{ type: "text" as const, text: typeof v === "string" ? v : JSON.stringify(v, null, 2) }] });
-
-function gate(cfg: Config) {
-  if (!cfg.allowMutations) throw new Error("Mutations are disabled. Start the server with QSEOW_ALLOW_MUTATIONS=true to enable this tool.");
-}
+const READ = { readOnlyHint: true, openWorldHint: false };
 
 export function registerDeveloperTools(server: McpServer, engine: EngineClient, qrs: QrsClient, cfg: Config): void {
-  server.tool(
+  server.registerTool(
     "get_script",
-    "Get an app's load script.",
-    { appId: z.string().describe("App id (GUID)") },
+    {
+      description: "Get an app's load script.",
+      inputSchema: { appId: z.string().describe("App id (GUID)") },
+      annotations: READ,
+    },
     async ({ appId }) => {
       const app = await engine.app(appId);
       return text(await app.getScript());
     },
   );
 
-  server.tool(
-    "set_script",
-    "Replace an app's load script and save. MUTATION.",
-    {
-      appId: z.string().describe("App id (GUID)"),
-      script: z.string().describe("Complete load script"),
-    },
-    async ({ appId, script }) => {
-      gate(cfg);
-      const app = await engine.app(appId);
-      await app.setScript(script);
-      await app.doSave();
-      return text(`Script updated and saved for ${appId} (${script.length} chars).`);
-    },
-  );
-
-  server.tool(
+  server.registerTool(
     "check_script",
-    "Syntax-check an app's current load script. Returns [] when clean.",
-    { appId: z.string().describe("App id (GUID)") },
+    {
+      description: "Syntax-check an app's current load script. Returns [] when clean.",
+      inputSchema: { appId: z.string().describe("App id (GUID)") },
+      annotations: READ,
+    },
     async ({ appId }) => {
       const app = await engine.app(appId);
       const errs = await app.checkScriptSyntax();
@@ -48,15 +35,39 @@ export function registerDeveloperTools(server: McpServer, engine: EngineClient, 
     },
   );
 
-  server.tool(
-    "reload_app",
-    "Reload an app in the engine session and save. Returns success flag and the tail of the reload progress log. MUTATION.",
+  // Mutating tools are REGISTERED only when mutations are enabled: a
+  // read-only server advertises a genuinely read-only tool surface.
+  if (!cfg.allowMutations) return;
+
+  server.registerTool(
+    "set_script",
     {
-      appId: z.string().describe("App id (GUID)"),
-      partial: z.boolean().optional().describe("Partial reload (default false)"),
+      description: "Replace an app's load script and save. MUTATION: overwrites the existing script.",
+      inputSchema: {
+        appId: z.string().describe("App id (GUID)"),
+        script: z.string().describe("Complete load script"),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ appId, script }) => {
+      const app = await engine.app(appId);
+      await app.setScript(script);
+      await app.doSave();
+      return text(`Script updated and saved for ${appId} (${script.length} chars).`);
+    },
+  );
+
+  server.registerTool(
+    "reload_app",
+    {
+      description: "Reload an app in the engine session and save. Returns success flag and the tail of the reload progress log. MUTATION: replaces the app's data.",
+      inputSchema: {
+        appId: z.string().describe("App id (GUID)"),
+        partial: z.boolean().optional().describe("Partial reload (default false)"),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     },
     async ({ appId, partial }) => {
-      gate(cfg);
       const g = await engine.global();
       const app = await engine.app(appId);
       const ok = await app.doReload(0, partial ?? false, false);
@@ -70,16 +81,18 @@ export function registerDeveloperTools(server: McpServer, engine: EngineClient, 
     },
   );
 
-  server.tool(
+  server.registerTool(
     "create_app",
-    "Create a new app, optionally set its script and reload it. Returns the new app id. MUTATION.",
     {
-      name: z.string().describe("App name"),
-      script: z.string().optional().describe("Load script to set"),
-      reload: z.boolean().optional().describe("Reload after setting script (default false)"),
+      description: "Create a new app, optionally set its script and reload it. Returns the new app id. MUTATION (additive).",
+      inputSchema: {
+        name: z.string().describe("App name"),
+        script: z.string().optional().describe("Load script to set"),
+        reload: z.boolean().optional().describe("Reload after setting script (default false)"),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     async ({ name, script, reload }) => {
-      gate(cfg);
       const g = await engine.global();
       const created = await g.createApp(name, "main");
       if (!created.qSuccess) throw new Error("Engine refused to create app");
@@ -95,29 +108,33 @@ export function registerDeveloperTools(server: McpServer, engine: EngineClient, 
     },
   );
 
-  server.tool(
+  server.registerTool(
     "copy_app",
-    "Copy an app in the repository under a new name. MUTATION.",
     {
-      appId: z.string().describe("Source app id (GUID)"),
-      name: z.string().describe("Name for the copy"),
+      description: "Copy an app in the repository under a new name. MUTATION (additive).",
+      inputSchema: {
+        appId: z.string().describe("Source app id (GUID)"),
+        name: z.string().describe("Name for the copy"),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     },
     async ({ appId, name }) => {
-      gate(cfg);
       const copy = await qrs.post<any>(`/qrs/app/${appId}/copy?name=${encodeURIComponent(name)}`);
       return text({ newAppId: copy.id, name: copy.name });
     },
   );
 
-  server.tool(
+  server.registerTool(
     "publish_app",
-    "Publish an app to a stream by stream name. MUTATION.",
     {
-      appId: z.string().describe("App id (GUID)"),
-      streamName: z.string().describe("Target stream name"),
+      description: "Publish an app to a stream by stream name. MUTATION: changes app visibility site-wide.",
+      inputSchema: {
+        appId: z.string().describe("App id (GUID)"),
+        streamName: z.string().describe("Target stream name"),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async ({ appId, streamName }) => {
-      gate(cfg);
       const streams = await qrs.get<any[]>(`/qrs/stream/full?filter=${encodeURIComponent(`name eq '${streamName}'`)}`);
       if (streams.length === 0) throw new Error(`Stream not found: ${streamName}`);
       const pub = await qrs.put<any>(`/qrs/app/${appId}/publish?stream=${streams[0].id}`);

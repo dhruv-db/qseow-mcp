@@ -1,6 +1,6 @@
 {
   "name": "qseow-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "MCP server for Qlik Sense Enterprise on Windows (client-managed): Repository, Engine/QIX, and Proxy APIs as Model Context Protocol tools for analysts, developers, and admins.",
   "license": "Apache-2.0",
   "type": "module",
@@ -18,7 +18,7 @@
     "node": ">=20"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.12.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "enigma.js": "^2.14.0",
     "ws": "^8.18.0",
     "zod": "^3.24.0"
