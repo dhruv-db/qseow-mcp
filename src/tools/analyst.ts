@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { EngineClient } from "../engine.js";
-import { text, pageParams, paginate } from "./shared.js";
+import { text, pageParams, paginate, buildSelectValues } from "./shared.js";
 
 // Engine tools operate on a closed domain (the Qlik site). Selections mutate
 // only session state — no persisted data changes — so selection tools carry
@@ -182,13 +182,7 @@ export function registerAnalystTools(server: McpServer, engine: EngineClient): v
       // sent as duals: { qText, qIsNumeric: true, qNumber }. Numeric-looking
       // strings get the same treatment; for genuine text fields the engine
       // matches on qText regardless, so the dual form is safe both ways.
-      const fieldValues = values.map((v) => {
-        const n = typeof v === "number" ? v : Number(v);
-        const isNum = typeof v === "number" || (String(v).trim() !== "" && Number.isFinite(n));
-        return isNum
-          ? { qText: String(v), qIsNumeric: true, qNumber: n }
-          : { qText: String(v), qIsNumeric: false };
-      });
+      const fieldValues = buildSelectValues(values);
       const readSelection = async () => {
         const sel = await app.createSessionObject({
           qInfo: { qType: "mcp-select-verify" },

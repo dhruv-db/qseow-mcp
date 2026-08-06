@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { EngineClient } from "../engine.js";
-import { text, pageParams, paginate } from "./shared.js";
+import { text, pageParams, paginate, walkStrings, classifyLineage } from "./shared.js";
 
 // The troubleshooting loop: KPI -> object -> sheet -> app -> script -> source.
 // Everything here is read-only introspection of a single app's definition
@@ -42,19 +42,6 @@ async function objectToSheetMap(app: any): Promise<Map<string, { sheetId: string
     } catch { /* sheet unreadable — skip */ }
   }
   return map;
-}
-
-/** Walk any JSON value; call visit(path, string) on every string leaf. */
-function walkStrings(v: unknown, path: string, visit: (path: string, s: string) => void): void {
-  if (typeof v === "string") {
-    visit(path, v);
-  } else if (Array.isArray(v)) {
-    v.forEach((x, i) => walkStrings(x, `${path}[${i}]`, visit));
-  } else if (v !== null && typeof v === "object") {
-    for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
-      walkStrings(val, path ? `${path}.${k}` : k, visit);
-    }
-  }
 }
 
 export function registerInspectorTools(server: McpServer, engine: EngineClient): void {
@@ -326,19 +313,8 @@ export function registerInspectorTools(server: McpServer, engine: EngineClient):
     async ({ appId }) => {
       const app = await engine.app(appId);
       const lineage: Array<{ qDiscriminator?: string; qStatement?: string }> = await app.getLineage();
-      const classify = (d: string | undefined, stmt: string | undefined) => {
-        const s = (d ?? "").toUpperCase();
-        const st = (stmt ?? "").toUpperCase();
-        if (st.startsWith("STORE")) return "store";
-        if (s.startsWith("INLINE")) return "inline";
-        if (s.startsWith("RESIDENT")) return "resident";
-        if (s.includes(".QVD")) return "qvd";
-        if (s.startsWith("BINARY")) return "binary";
-        if (s.includes("PROVIDER=") || s.includes("ODBC") || s.includes("OLEDB") || s.includes("CUSTOM CONNECT")) return "database";
-        return "other";
-      };
       return text(lineage.map((l) => ({
-        kind: classify(l.qDiscriminator, l.qStatement),
+        kind: classifyLineage(l.qDiscriminator, l.qStatement),
         discriminator: l.qDiscriminator,
         statement: l.qStatement,
       })));

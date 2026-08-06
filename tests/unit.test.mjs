@@ -1,0 +1,135 @@
+// Unit tests for the pure logic layer (node --test; no live site needed).
+//
+// Fixture modes:
+//   - tests/fixtures/*.json  — synthetic, shipped with the repo, always run
+//   - QPROP_FIXTURE_DIR=<dir> — optional deep mode: recursively walks every
+//     .json under the dir (e.g. a real site snapshot with thousands of
+//     recorded qProps) through the same code paths. Not shipped.
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import {
+  redactSecrets, paginate, walkStrings, classifyLineage, buildSelectValues,
+} from "../dist/tools/shared.js";
+
+const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
+const fixture = (name) => JSON.parse(readFileSync(join(FIXTURES, name), "utf8"));
+
+// ── redactSecrets ────────────────────────────────────────────────────────────
+
+test("redactSecrets masks credential fields but keeps empty/null", () => {
+  const dc = redactSecrets(fixture("dataconnection_full.json"));
+  assert.equal(dc.password, "***REDACTED***");
+  assert.equal(dc.passphrase, "");                      // empty passes through
+  assert.equal(dc.username, "svc_qlik");                // not a secret field
+  assert.equal(dc.owner.userId, "svc_qlik");
+});
+
+test("redactSecrets scrubs key=value secrets inside connection strings", () => {
+  const dc = redactSecrets(fixture("dataconnection_full.json"));
+  assert.ok(!dc.connectionstring.includes("SuperSecret123"));
+  assert.ok(dc.connectionstring.includes("PWD=***REDACTED***"));
+  assert.ok(dc.connectionstring.includes("Data Source=warehouse.internal")); // non-secret kv intact
+});
+
+test("redactSecrets handles arrays and non-objects", () => {
+  const arr = redactSecrets([{ password: "x" }, "pwd=abc;", 42, null]);
+  assert.equal(arr[0].password, "***REDACTED***");
+  assert.equal(arr[1], "pwd=***REDACTED***;");
+  assert.equal(arr[2], 42);
+  assert.equal(arr[3], null);
+});
+
+// ── paginate ─────────────────────────────────────────────────────────────────
+
+test("paginate envelope: defaults, offset/limit, truncated flag", () => {
+  const items = Array.from({ length: 250 }, (_, i) => i);
+  const d = paginate(items);
+  assert.deepEqual([d.total, d.offset, d.returned, d.truncated], [250, 0, 100, true]);
+  const p2 = paginate(items, 240, 100);
+  assert.deepEqual([p2.returned, p2.truncated, p2.items[0]], [10, false, 240]);
+  const all = paginate([1, 2, 3], 0, 100);
+  assert.equal(all.truncated, false);
+});
+
+// ── buildSelectValues ────────────────────────────────────────────────────────
+
+test("buildSelectValues: numbers and numeric strings become duals", () => {
+  const [n, s, t, e] = buildSelectValues([120, "150", "East", ""]);
+  assert.deepEqual(n, { qText: "120", qIsNumeric: true, qNumber: 120 });
+  assert.deepEqual(s, { qText: "150", qIsNumeric: true, qNumber: 150 });
+  assert.deepEqual(t, { qText: "East", qIsNumeric: false });
+  assert.deepEqual(e, { qText: "", qIsNumeric: false });
+});
+
+// ── classifyLineage ──────────────────────────────────────────────────────────
+
+test("classifyLineage covers the discriminator taxonomy", () => {
+  assert.equal(classifyLineage("INLINE;", "LOAD * INLINE"), "inline");
+  assert.equal(classifyLineage("RESIDENT Revenue", "LOAD"), "resident");
+  assert.equal(classifyLineage("C:\\qlik\\revenue_close.qvd", "LOAD"), "qvd");
+  assert.equal(classifyLineage("lib://X/y.qvd", "STORE Revenue INTO"), "store");
+  assert.equal(classifyLineage("Provider=SQLOLEDB;Data Source=w", "SQL SELECT"), "database");
+  assert.equal(classifyLineage("something.xlsx", "LOAD"), "other");
+});
+
+// ── walkStrings + search semantics over qProp fixtures ───────────────────────
+
+function searchQProp(prop, term) {
+  const needle = term.toLowerCase();
+  const found = [];
+  walkStrings(prop, "", (path, s) => {
+    if (s.toLowerCase().includes(needle)) found.push({ path, s });
+  });
+  return found;
+}
+
+test("search finds an inline expression with its qProp path", () => {
+  const hits = searchQProp(fixture("barchart_expressions.json"), "Scenario={'Actual'}");
+  assert.equal(hits.length, 1);
+  assert.match(hits[0].path, /qHyperCubeDef\.qMeasures\[0\]\.qDef\.qDef/);
+});
+
+test("search finds a library reference and a title expression", () => {
+  assert.equal(searchQProp(fixture("kpi_library_ref.json"), "fixture-measure-1").length, 1);
+  const title = searchQProp(fixture("barchart_expressions.json"), "GetCurrentSelections");
+  assert.match(title[0].path, /title\.qStringExpression\.qExpr/);
+});
+
+test("every shipped fixture walks cleanly and yields string leaves", () => {
+  for (const f of readdirSync(FIXTURES).filter((x) => x.endsWith(".json"))) {
+    let leaves = 0;
+    walkStrings(fixture(f), "", () => { leaves++; });
+    assert.ok(leaves > 0, `${f} produced no string leaves`);
+  }
+});
+
+// ── deep mode: a real snapshot directory of recorded qProps ──────────────────
+
+test("deep fixture sweep (QPROP_FIXTURE_DIR)", { skip: !process.env.QPROP_FIXTURE_DIR }, () => {
+  const root = process.env.QPROP_FIXTURE_DIR;
+  let files = 0, leaves = 0, failures = 0;
+  const walk = (dir) => {
+    for (const name of readdirSync(dir)) {
+      const p = join(dir, name);
+      if (statSync(p).isDirectory()) { walk(p); continue; }
+      if (!name.endsWith(".json")) continue;
+      files++;
+      try {
+        const doc = JSON.parse(readFileSync(p, "utf8"));
+        walkStrings(doc, "", () => { leaves++; });
+        redactSecrets(doc); // must never throw on real payloads
+      } catch (e) {
+        failures++;
+        console.error("deep sweep failure:", p, String(e).slice(0, 120));
+      }
+    }
+  };
+  walk(root);
+  console.log(`deep sweep: ${files} files, ${leaves} string leaves, ${failures} failures`);
+  assert.equal(failures, 0);
+  assert.ok(files > 0, "QPROP_FIXTURE_DIR contained no .json files");
+});
