@@ -161,6 +161,68 @@ if (appId) {
   await step("get_field_values Month", () => call("get_field_values", { appId, field: "Month" }));
 }
 
+// ---- inspector tools (Tier 1: the troubleshooting loop)
+// Requires the sheet/measure fixture: node scripts/fixture_sheet.mjs <appId>
+if (appId) {
+  let smokeSheetId, kpiObjectId, smokeMeasureId;
+  await step("list_sheets finds fixture sheet", async () => {
+    const sheets = JSON.parse(await call("list_sheets", { appId }));
+    const s = sheets.find((x) => x.title === "MCP Smoke Sheet");
+    if (!s) throw new Error("fixture sheet missing — run scripts/fixture_sheet.mjs");
+    smokeSheetId = s.sheetId;
+    return smokeSheetId;
+  });
+  if (smokeSheetId) {
+    await step("get_sheet_objects finds KPI", async () => {
+      const r = JSON.parse(await call("get_sheet_objects", { appId, sheetId: smokeSheetId }));
+      const kpi = r.objects.find((o) => o.qType === "kpi");
+      if (!kpi) throw new Error(`no kpi child: ${JSON.stringify(r.objects)}`);
+      kpiObjectId = kpi.objectId;
+      return `${r.objects.length} objects, kpi=${kpiObjectId} title=${kpi.title}`;
+    });
+  }
+  if (kpiObjectId) {
+    await step("get_object_properties returns qProps w/ library ref", async () => {
+      const p = JSON.parse(await call("get_object_properties", { appId, objectId: kpiObjectId }));
+      const libId = p.qHyperCubeDef?.qMeasures?.[0]?.qLibraryId;
+      if (!libId) throw new Error("KPI qProps missing qLibraryId");
+      smokeMeasureId = libId;
+      return `qLibraryId=${libId}`;
+    });
+  }
+  await step("list_master_measures finds Smoke Revenue", async () => {
+    const r = JSON.parse(await call("list_master_measures", { appId }));
+    const m = r.items.find((x) => x.title === "Smoke Revenue");
+    if (!m) throw new Error("Smoke Revenue master measure missing");
+    if (m.expression !== "Sum(Sales)") throw new Error(`unexpected expression ${m.expression}`);
+    return `${m.measureId} expr=${m.expression}`;
+  });
+  await step("list_master_dimensions returns envelope", async () => {
+    const r = JSON.parse(await call("list_master_dimensions", { appId }));
+    if (!Array.isArray(r.items)) throw new Error("bad envelope");
+    return `total=${r.total}`;
+  });
+  await step("evaluate_master_measure by title = 925", async () => {
+    await call("clear_selections", { appId });
+    const r = JSON.parse(await call("evaluate_master_measure", { appId, title: "Smoke Revenue" }));
+    if (Number(r.value) !== 925) throw new Error(`value=${r.value}, want 925`);
+    return `expr=${r.expression} value=${r.value}`;
+  });
+  await step("search_expressions('Sales') spans objects+measures", async () => {
+    // Script matches are NOT required here: the demo app is published, and
+    // the engine hides a published app's script from user identities (JWT
+    // mode). Script-layer search + lineage are asserted below on the owned
+    // unpublished copy — the documented support-agent pattern.
+    const r = JSON.parse(await call("search_expressions", { appId, term: "Sales" }));
+    const kinds = new Set(r.matches.map((m) => m.kind));
+    for (const want of ["object", "master_measure"]) {
+      if (!kinds.has(want)) throw new Error(`no ${want} match: kinds=${[...kinds].join(",")}`);
+    }
+    const sheetAnnotated = r.matches.some((m) => m.kind === "object" && m.sheetTitle === "MCP Smoke Sheet");
+    return `matches=${r.matchCount} kinds=${[...kinds].join(",")} sheetAnnotated=${sheetAnnotated} scanned=${r.objectsScanned}`;
+  });
+}
+
 // ---- explicit coverage: remaining list tools (envelope shape asserted)
 const envelope = (r) => {
   const p = JSON.parse(r);
@@ -202,6 +264,17 @@ if (copyId) {
     const ev = JSON.parse(await call("evaluate_expression", { appId: copyId, expression: "Sum(Sales)" }));
     if (Number(ev.value) !== 42) throw new Error(`Sum(Sales)=${ev.value}, want 42`);
     return "Sum=42";
+  });
+  await step("search_expressions on owned copy includes script", async () => {
+    const r = JSON.parse(await call("search_expressions", { appId: copyId, term: "Sales" }));
+    const kinds = new Set(r.matches.map((m) => m.kind));
+    if (!kinds.has("script")) throw new Error(`no script match on owned copy: kinds=${[...kinds].join(",")}`);
+    return `kinds=${[...kinds].join(",")}`;
+  });
+  await step("get_app_lineage on owned copy shows inline", async () => {
+    const r = JSON.parse(await call("get_app_lineage", { appId: copyId }));
+    if (!r.some((l) => l.kind === "inline")) throw new Error(`no inline lineage: ${JSON.stringify(r).slice(0, 200)}`);
+    return r.map((l) => l.kind).join(",");
   });
   await step("publish_app copy to Everyone", async () => {
     const r = JSON.parse(await call("publish_app", { appId: copyId, streamName: "Everyone" }));

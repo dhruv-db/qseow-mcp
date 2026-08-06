@@ -8,8 +8,9 @@ import { EngineClient } from "./engine.js";
 import { registerAdminTools } from "./tools/admin.js";
 import { registerAnalystTools } from "./tools/analyst.js";
 import { registerDeveloperTools } from "./tools/developer.js";
+import { registerInspectorTools } from "./tools/inspector.js";
 
-const VERSION = "0.2.0";
+const VERSION = "0.3.0";
 
 async function main(): Promise<void> {
   const cfg = loadConfig();
@@ -22,7 +23,12 @@ async function main(): Promise<void> {
   // Mutating tools are gated at REGISTRATION: with mutations disabled they
   // are never added to the server, so tools/list is honestly read-only.
   if (cfg.toolGroups.has("admin")) registerAdminTools(server, qrs, cfg);
-  if (cfg.toolGroups.has("analyst")) registerAnalystTools(server, engine);
+  if (cfg.toolGroups.has("analyst")) {
+    registerAnalystTools(server, engine);
+    // The troubleshooting loop (sheets, objects, expression search, master
+    // items, lineage) ships with the analyst group: read-only introspection.
+    registerInspectorTools(server, engine);
+  }
   if (cfg.toolGroups.has("developer")) registerDeveloperTools(server, engine, qrs, cfg);
 
   const transport = new StdioServerTransport();

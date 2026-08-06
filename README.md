@@ -2,9 +2,9 @@
 
 **An MCP server for Qlik Sense Enterprise on Windows (client-managed).**
 
-Qlik Cloud ships a native MCP endpoint. The client-managed estate — where a large share of enterprise Qlik still runs — has nothing equivalent. This server exposes the on-prem API surface (Repository/QRS, Engine/QIX, Proxy) as [Model Context Protocol](https://modelcontextprotocol.io) tools, so an MCP client can govern, query, and build against a Qlik Sense site.
+**The glue layer for a Qlik support agent.** Qlik Cloud ships a native MCP endpoint; the client-managed estate — where a large share of enterprise Qlik still runs — has nothing equivalent. This server exposes the on-prem API surface (Repository/QRS, Engine/QIX, Proxy) as [Model Context Protocol](https://modelcontextprotocol.io) tools, so an agent can do what a support engineer does when a number is wrong: walk KPI → object → sheet → app → script → source, evaluating definitions at every step — plus govern, query, and build against the site.
 
-> **Status: 0.2.0, pre-release.** All 27 tools exercised end-to-end against Qlik Sense **May 2026 (15.13.8)** on a single-node site, in BOTH certificate and JWT auth modes (including the full mutation lifecycle: copy → set_script → reload → publish → delete, and task start-to-finish). Tool names and shapes may still change.
+> **Status: 0.3.0, pre-release.** All 35 tools exercised end-to-end against Qlik Sense **May 2026 (15.13.8)** on a single-node site, in BOTH certificate and JWT auth modes (including the full mutation lifecycle: copy → set_script → reload → publish → delete, and task start-to-finish). Tool names and shapes may still change.
 
 ## Tools by persona
 
@@ -19,6 +19,18 @@ Expose only what a given deployment needs with `QSEOW_TOOL_GROUPS`.
 | `create_hypercube` | Group-by query: dimensions × measures → rows |
 | `get_field_values` | Distinct values with selection state, optional search |
 | `select_field_values` / `clear_selections` / `get_current_selections` | Drive and inspect selection state |
+
+**Inspector** — the troubleshooting loop (ships with the analyst group)
+| Tool | Purpose |
+|---|---|
+| `list_sheets` / `get_sheet_objects` | Walk the UI layer: sheets and the objects on them |
+| `get_object_properties` | Full qProps of any object — the definition layer |
+| `search_expressions` | Find a field, KPI, or expression fragment across ALL objects (with owning sheet), master items, variables, and the script |
+| `list_master_measures` / `list_master_dimensions` | The governed definition inventory |
+| `evaluate_master_measure` | Evaluate a master measure by id or title (sidesteps the `[Name]`-resolves-to-a-field trap) |
+| `get_app_lineage` | Every LOAD/STORE source and target, classified (qvd, database, inline, resident, store) |
+
+**Published-app caveat:** the engine hides a published app's *script* and *lineage* from user identities (internal certificate identities bypass this). The support-agent pattern is `copy_app` → trace the owned copy — the copy carries the same script and definitions.
 
 **Developer** — build and ship apps (Engine + QRS)
 | Tool | Purpose |
