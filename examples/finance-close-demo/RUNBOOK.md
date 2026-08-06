@@ -45,8 +45,10 @@ What a competent agent does with the tool surface (each step is one tool call
 5. **`search_expressions`** (`term: "Revenue"`) on the dashboard → the KPI
    object on sheet "Close Review" + the master measure — the full UI-to-
    definition chain, annotated with the owning sheet. *(~20s)*
-6. **`get_app_lineage`** on the dashboard → `revenue_close.qvd` appears
-   **twice** as a source. Same QVD, two loads. *(~15s)*
+6. **`get_app_lineage`** on the dashboard → one certified source:
+   `revenue_close.qvd`, no side feeds. (The engine de-duplicates lineage
+   sources, so a double-load shows as one entry — lineage rules out *other*
+   data coming in; the script shows the how.) *(~15s)*
 7. **`get_script`** on the dashboard → the planted block, in plain sight:
    a `CONCATENATE ... WHERE DocType = 'Adjustment'` re-load commented as a
    *"late adjustment batch from close night — merged manually"*. Root cause:
@@ -64,8 +66,13 @@ against a governed estate, with every step auditable."*
 
 - Steps 1–7 are read-only: run them with mutations off if you want to show
   the read-only tool surface in `tools/list` first.
-- Budget: ≤10 min total including narration; the tool calls themselves total
-  ~3 min. Rehearse the hypercube step — it's the "aha" beat.
+- Budget: ≤10 min total including narration. **Measured (trace.mjs,
+  2026-08-06): the raw tool calls run in 4.2 seconds end-to-end, fix and
+  reload included** — the demo's pace is set entirely by narration and agent
+  reasoning, not the tools. Rehearse the hypercube step — it's the "aha" beat.
+- `node trace.mjs` replays the exact sequence with assertions — run it before
+  any live showing to confirm the box state, and use its transcript as the
+  video script.
 - After the fix step the box is in the CLEAN state; run `plant.mjs` to reset
   the demo (or `reset.mjs` if a run went sideways).
 
