@@ -15,17 +15,33 @@ function normalizeEngineError(prefix: string, e: unknown): Error {
   return new Error(`${prefix}: ${JSON.stringify(e)}`);
 }
 
-interface CachedSession {
+interface CachedGlobal {
   session: any;
   global: any;
-  apps: Map<string, any>;
   lastUsed: number;
 }
 
-/** Engine (QIX) session factory with a single cached global session and
- *  per-app doc cache so selections persist across tool calls. */
+interface CachedApp {
+  session: any;
+  doc: any;
+  lastUsed: number;
+}
+
+/** Engine (QIX) session manager.
+ *
+ *  A QIX websocket holds AT MOST ONE open doc — a second OpenDoc on the same
+ *  socket fails with "App already open" (hit live 2026-08-06 when a smoke run
+ *  touched two apps). So: one dedicated session per app (standard Qlik
+ *  pattern, socket path /app/<appId>), plus one appless session
+ *  (/app/engineData) for global calls (doc list, createApp). Each app session
+ *  caches its doc so selections persist across tool calls.
+ *
+ *  JWT mode: every socket reuses the SAME bootstrapped proxy session cookie,
+ *  so N app sockets consume one proxy session — no collision with the
+ *  proxy's max-parallel-sessions-per-user limit (default 5). */
 export class EngineClient {
-  private cached?: CachedSession;
+  private globalCached?: CachedGlobal;
+  private appCached = new Map<string, CachedApp>();
   private idleTimer?: ReturnType<typeof setInterval>;
   private cachedCookie?: string;
 
@@ -34,14 +50,14 @@ export class EngineClient {
     this.idleTimer.unref?.();
   }
 
-  private async wsUrl(): Promise<string> {
+  private async wsUrl(pathId: string): Promise<string> {
     const cfg = this.cfg;
     if (cfg.authMode === "jwt") {
       // The proxy's CSWSH check requires a server-issued CSRF token on the URL.
       const { csrfToken } = await this.session!.ensure();
-      return `wss://${cfg.host}:${cfg.proxyPort}/${cfg.vpPrefix}/app/engineData?qlik-csrf-token=${encodeURIComponent(csrfToken)}`;
+      return `wss://${cfg.host}:${cfg.proxyPort}/${cfg.vpPrefix}/app/${pathId}?qlik-csrf-token=${encodeURIComponent(csrfToken)}`;
     }
-    return `wss://${cfg.host}:${cfg.enginePort}/app/engineData`;
+    return `wss://${cfg.host}:${cfg.enginePort}/app/${pathId}`;
   }
 
   private createSocket(url: string): WebSocket {
@@ -67,21 +83,16 @@ export class EngineClient {
     });
   }
 
-  async global(): Promise<any> {
-    if (this.cached) {
-      this.cached.lastUsed = Date.now();
-      return this.cached.global;
-    }
+  private async openSession(pathId: string): Promise<{ session: any; global: any }> {
     if (this.cfg.authMode === "jwt") {
       this.cachedCookie = (await this.session!.ensure()).cookie;
     }
     const session = enigma.create({
       schema,
-      url: await this.wsUrl(),
+      url: await this.wsUrl(pathId),
       createSocket: (url: string) => this.createSocket(url),
       suspendOnClose: false,
     });
-    session.on("closed", () => { this.cached = undefined; });
     let global: any;
     try {
       global = await session.open();
@@ -89,38 +100,67 @@ export class EngineClient {
       try { await session.close(); } catch { /* noop */ }
       throw normalizeEngineError("engine session open failed", e);
     }
-    this.cached = { session, global, apps: new Map(), lastUsed: Date.now() };
+    return { session, global };
+  }
+
+  /** Appless global session — doc list, createApp, engine-wide calls. */
+  async global(): Promise<any> {
+    if (this.globalCached) {
+      this.globalCached.lastUsed = Date.now();
+      return this.globalCached.global;
+    }
+    const { session, global } = await this.openSession("engineData");
+    session.on("closed", () => { this.globalCached = undefined; });
+    this.globalCached = { session, global, lastUsed: Date.now() };
     return global;
   }
 
+  /** Dedicated session per app; doc cached so selections persist. */
   async app(appId: string): Promise<any> {
-    const g = await this.global();
-    const c = this.cached!;
-    if (c.apps.has(appId)) {
+    const existing = this.appCached.get(appId);
+    if (existing) {
       try {
-        await c.apps.get(appId).getAppLayout(); // liveness check
-        return c.apps.get(appId);
-      } catch { c.apps.delete(appId); }
+        await existing.doc.getAppLayout(); // liveness check
+        existing.lastUsed = Date.now();
+        return existing.doc;
+      } catch {
+        this.appCached.delete(appId);
+        try { await existing.session.close(); } catch { /* already gone */ }
+      }
     }
+    const { session, global } = await this.openSession(appId);
+    session.on("closed", () => { this.appCached.delete(appId); });
     try {
-      const doc = await g.openDoc(appId, "", "", "", false);
-      c.apps.set(appId, doc);
+      const doc = await global.openDoc(appId, "", "", "", false);
+      this.appCached.set(appId, { session, doc, lastUsed: Date.now() });
       return doc;
     } catch (e) {
+      try { await session.close(); } catch { /* noop */ }
       throw normalizeEngineError(`openDoc(${appId}) failed`, e);
     }
   }
 
   private async reapIdle(): Promise<void> {
-    if (this.cached && Date.now() - this.cached.lastUsed > 5 * 60_000) {
-      try { await this.cached.session.close(); } catch { /* already gone */ }
-      this.cached = undefined;
+    const cutoff = Date.now() - 5 * 60_000;
+    if (this.globalCached && this.globalCached.lastUsed < cutoff) {
+      try { await this.globalCached.session.close(); } catch { /* already gone */ }
+      this.globalCached = undefined;
+    }
+    for (const [appId, entry] of this.appCached) {
+      if (entry.lastUsed < cutoff) {
+        this.appCached.delete(appId);
+        try { await entry.session.close(); } catch { /* already gone */ }
+      }
     }
   }
 
   async close(): Promise<void> {
     if (this.idleTimer) clearInterval(this.idleTimer);
-    if (this.cached) { try { await this.cached.session.close(); } catch { /* noop */ } }
-    this.cached = undefined;
+    if (this.globalCached) { try { await this.globalCached.session.close(); } catch { /* noop */ } }
+    this.globalCached = undefined;
+    for (const [, entry] of this.appCached) {
+      try { await entry.session.close(); } catch { /* noop */ }
+    }
+    this.appCached.clear();
   }
 }

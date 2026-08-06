@@ -125,6 +125,19 @@ export function registerDeveloperTools(server: McpServer, engine: EngineClient, 
   );
 
   server.registerTool(
+    "delete_app",
+    {
+      description: "Delete an app from the repository by id. MUTATION: irreversible — the app and its data are removed.",
+      inputSchema: { appId: z.string().describe("App id (GUID)") },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ appId }) => {
+      await qrs.delete(`/qrs/app/${appId}`);
+      return text(`App ${appId} deleted.`);
+    },
+  );
+
+  server.registerTool(
     "publish_app",
     {
       description: "Publish an app to a stream by stream name. MUTATION: changes app visibility site-wide.",

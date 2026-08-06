@@ -4,7 +4,7 @@
 
 Qlik Cloud ships a native MCP endpoint. The client-managed estate — where a large share of enterprise Qlik still runs — has nothing equivalent. This server exposes the on-prem API surface (Repository/QRS, Engine/QIX, Proxy) as [Model Context Protocol](https://modelcontextprotocol.io) tools, so an MCP client can govern, query, and build against a Qlik Sense site.
 
-> **Status: 0.1.0, early.** Validated end-to-end against Qlik Sense **May 2026 (15.13.8)** on a single-node site. Tool names and shapes may still change.
+> **Status: 0.2.0, pre-release.** All 27 tools exercised end-to-end against Qlik Sense **May 2026 (15.13.8)** on a single-node site, in BOTH certificate and JWT auth modes (including the full mutation lifecycle: copy → set_script → reload → publish → delete, and task start-to-finish). Tool names and shapes may still change.
 
 ## Tools by persona
 
@@ -27,7 +27,7 @@ Expose only what a given deployment needs with `QSEOW_TOOL_GROUPS`.
 | `check_script` | Syntax-check without reloading |
 | `reload_app` | Reload and save, returns progress tail |
 | `create_app` | Create app, optionally set script and reload |
-| `copy_app` / `publish_app` | Duplicate; publish to a stream |
+| `copy_app` / `publish_app` / `delete_app` | Duplicate; publish to a stream; delete |
 
 **Admin** — govern the site (QRS)
 | Tool | Purpose |
@@ -39,7 +39,7 @@ Expose only what a given deployment needs with `QSEOW_TOOL_GROUPS`.
 | `list_extensions` / `list_data_connections` | Extension and connection inventory |
 | `qrs_search` | Any QRS entity + filter expression — the governance power tool |
 
-Mutating tools (`set_script`, `reload_app`, `create_app`, `copy_app`, `publish_app`, `start_task`) are **gated at registration**: unless `QSEOW_ALLOW_MUTATIONS=true`, they are never registered, so a read-only deployment advertises a genuinely read-only tool surface in `tools/list`. Default is read-only.
+Mutating tools (`set_script`, `reload_app`, `create_app`, `copy_app`, `publish_app`, `delete_app`, `start_task`) are **gated at registration**: unless `QSEOW_ALLOW_MUTATIONS=true`, they are never registered, so a read-only deployment advertises a genuinely read-only tool surface in `tools/list`. Default is read-only.
 
 Every tool carries MCP tool annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) so clients that honor them can apply their own policy — e.g. `reload_app`/`set_script`/`start_task` are flagged destructive; selection tools are non-destructive session-state mutations.
 

@@ -60,7 +60,7 @@ const step = async (label, fn) => {
 const tools = await client.listTools();
 log("tools registered", tools.tools.map((t) => t.name).join(", "));
 
-const MUTATING = ["set_script", "reload_app", "create_app", "copy_app", "publish_app", "start_task"];
+const MUTATING = ["set_script", "reload_app", "create_app", "copy_app", "publish_app", "delete_app", "start_task"];
 
 await step("annotations present on every tool", () => {
   const missing = tools.tools.filter((t) => typeof t.annotations?.readOnlyHint !== "boolean");
@@ -160,6 +160,76 @@ if (appId) {
   await step("clear selections", () => call("clear_selections", { appId }));
   await step("get_field_values Month", () => call("get_field_values", { appId, field: "Month" }));
 }
+
+// ---- explicit coverage: remaining list tools (envelope shape asserted)
+const envelope = (r) => {
+  const p = JSON.parse(r);
+  if (!Array.isArray(p.items) || typeof p.total !== "number") throw new Error(`bad envelope: ${r.slice(0, 120)}`);
+  return p;
+};
+await step("list_streams", async () => `total=${envelope(await call("list_streams", {})).total}`);
+await step("list_tasks", async () => `total=${envelope(await call("list_tasks", {})).total}`);
+await step("list_users", async () => `total=${envelope(await call("list_users", {})).total}`);
+await step("list_extensions", async () => `total=${envelope(await call("list_extensions", {})).total}`);
+await step("list_data_connections redacts", async () => {
+  const raw = await call("list_data_connections", {});
+  const p = envelope(raw);
+  const kvLeaks = raw.match(/\b(pwd|password|apikey)\s*=\s*(?!\*\*\*REDACTED\*\*\*)[^;"'\s*]+/gi) ?? [];
+  if (kvLeaks.length) throw new Error(`unredacted: ${kvLeaks.slice(0, 2).join(" | ")}`);
+  return `total=${p.total} clean`;
+});
+await step("list_engine_apps", async () => `total=${envelope(await call("list_engine_apps", {})).total}`);
+
+// ---- mutation lifecycle on a disposable copy: copy -> set_script ->
+// reload -> evaluate -> publish -> delete. Leaves the site as it found it.
+const COPY_NAME = `MCP Smoke Copy`;
+const COPY_SCRIPT = `S: LOAD * INLINE [Sales\n42\n];`;
+let copyId;
+await step("copy_app", async () => {
+  const r = JSON.parse(await call("copy_app", { appId, name: COPY_NAME }));
+  copyId = r.newAppId;
+  if (!copyId) throw new Error("no newAppId");
+  return copyId;
+});
+if (copyId) {
+  await step("set_script on copy", () => call("set_script", { appId: copyId, script: COPY_SCRIPT }));
+  await step("reload_app on copy", async () => {
+    const r = JSON.parse(await call("reload_app", { appId: copyId }));
+    if (!r.reloadSuccess) throw new Error("reload failed");
+    return `reloadSuccess=${r.reloadSuccess}`;
+  });
+  await step("copy reflects new script (Sum(Sales)=42)", async () => {
+    const ev = JSON.parse(await call("evaluate_expression", { appId: copyId, expression: "Sum(Sales)" }));
+    if (Number(ev.value) !== 42) throw new Error(`Sum(Sales)=${ev.value}, want 42`);
+    return "Sum=42";
+  });
+  await step("publish_app copy to Everyone", async () => {
+    const r = JSON.parse(await call("publish_app", { appId: copyId, streamName: "Everyone" }));
+    if (!r.published) throw new Error("not published");
+    return `stream=${r.stream}`;
+  });
+  await step("delete_app copy (cleanup)", async () => {
+    await call("delete_app", { appId: copyId });
+    const gone = JSON.parse(await call("list_apps", { filter: `id eq ${copyId}` }));
+    if (gone.total !== 0) throw new Error("copy still present after delete");
+    return "deleted + verified gone";
+  });
+}
+
+// ---- start_task: needs the persistent fixture task (bound to the demo app).
+await step("start_task (fixture 'MCP Smoke Task')", async () => {
+  const tasks = envelope(await call("list_tasks", { filter: `name eq 'MCP Smoke Task'` }));
+  if (tasks.total === 0) throw new Error("fixture task missing — create 'MCP Smoke Task' bound to the demo app");
+  const taskId = tasks.items[0].id;
+  await call("start_task", { taskId });
+  for (let i = 0; i < 24; i++) {
+    await new Promise((r) => setTimeout(r, 5000));
+    const t = envelope(await call("list_tasks", { filter: `name eq 'MCP Smoke Task'` })).items[0];
+    if (t.lastStatus === "FinishedSuccess") return `FinishedSuccess after ~${(i + 1) * 5}s`;
+    if (["FinishedFail", "Error", "Aborted"].includes(t.lastStatus)) throw new Error(`task ended ${t.lastStatus}`);
+  }
+  throw new Error("task did not finish within 120s");
+});
 
 await client.close();
 console.log(failures === 0 ? "SMOKE: ALL PASS" : `SMOKE: ${failures} FAILURES`);
