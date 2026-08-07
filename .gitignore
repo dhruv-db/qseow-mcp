@@ -9,4 +9,5 @@ client.p12
 certs/
 .DS_Store
 coverage/
-package-lock.json
+# package-lock.json is COMMITTED on purpose: `npm ci` in CI and
+# reproducible installs for consumers both require it.
