@@ -21,6 +21,19 @@ forever; every value is deterministic to the cent.
 - `node setup.mjs` once, `node plant.mjs` before each run (same env as the server).
 - App ids print at setup; the agent needs neither — it discovers them.
 
+## Pre-flight (immediately before ANY recording or live showing)
+
+Never trust remembered state — `trace.mjs` and the fix step both leave the box
+CLEAN, so "it was planted yesterday" is exactly how a demo opens on the wrong
+number. The sequence below is idempotent and safe from any starting state:
+
+1. Confirm the site is up (`qrs_about` or a hub login).
+2. `node plant.mjs` — re-arms the demo regardless of current state and
+   **verifies the planted value; exits non-zero if the KPI is not
+   $655,728,164.79.** Green means armed, full stop.
+3. Optional rehearsal: `node trace.mjs` (assertions + timing). It ends in the
+   CLEAN state — **run `plant.mjs` again after it.**
+
 ## The trace (agent turn by turn; ~8 min with narration, timed 2026-08-06)
 
 Open with the business frame: *"Close review says revenue is $655.7M. The

@@ -13,6 +13,9 @@ if (!dashboardId) throw new Error("dashboard app missing — run setup.mjs first
 const dash = await setScriptAndReload(engine, dashboardId, DASHBOARD_SCRIPT_PLANTED);
 const val = await dash.evaluateEx("Sum({<Scenario={'Actual'}, Period={'FY2026-Q1'}>} Amount)");
 console.log(`dashboard KPI now = ${val.qNumber} (planted target ${PLANTED})`);
-console.log(Math.abs(val.qNumber - Number(PLANTED)) < 0.005 ? "PLANTED — mismatch live" : "UNEXPECTED VALUE");
+const armed = Math.abs(val.qNumber - Number(PLANTED)) < 0.005;
+console.log(armed ? "PLANTED — mismatch live" : "UNEXPECTED VALUE — demo NOT armed");
 await engine.close();
-process.exit(0);
+// Non-zero exit on a wrong value so a pre-flight script (or a human skimming
+// output) can't mistake a failed plant for an armed demo.
+process.exit(armed ? 0 : 1);
