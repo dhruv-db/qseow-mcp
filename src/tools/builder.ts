@@ -22,6 +22,95 @@ const positionSchema = z.object({
   rowspan: z.number().int().positive(),
 }).describe("Grid cell (sheet grid is columns x rows, default 24x12)");
 
+// ── Nebula default property blocks ───────────────────────────────────────────
+// Modern Sense visualizations (barchart, linechart, piechart, scatterplot,
+// treemap, combochart, gauge, table) are rendered by nebula.js supernovas
+// (@nebula.js/sn-*), NOT by the engine. A hypercube the engine accepts and
+// evaluates perfectly will still render BLANK if these property blocks are
+// absent — the supernova throws `Cannot read properties of undefined
+// (reading 'auto')` in the browser and the engine never knows.
+//
+// Verified live (May 2026 / sn-bar-chart 2.2.0) by building each type and
+// screenshotting it through a headless browser: without these blocks 8 of 12
+// types render blank; with them, all render. Extra properties a given
+// supernova doesn't use are ignored, so one shared block is safe.
+export const NEBULA_CHART_TYPES = new Set([
+  "barchart", "linechart", "combochart", "piechart", "scatterplot", "treemap", "gauge", "table",
+]);
+
+const NEBULA_DEFAULTS: Record<string, any> = {
+  showTitles: true, subtitle: "", footnote: "", showDetails: false, showDisclaimer: true,
+  orientation: "vertical",
+  barGrouping: { grouping: "grouped", grouping2: "grouped" },
+  color: {
+    auto: true, mode: "primary", formatting: { numFormatFromTemplate: true }, useBaseColors: "off",
+    paletteColor: { index: 6 }, useDimColVal: true, useMeasureGradient: true, persistent: false,
+    expressionIsColor: true, expressionLabel: "", measureScheme: "sg", reverseScheme: false,
+    autoMinMax: true, measureMin: 0, measureMax: 10,
+  },
+  legend: { show: true, dock: "auto", showTitle: true, title: {} },
+  dataPoint: { auto: true, showLabels: false, showSegmentLabels: false, showTotalLabels: false },
+  gridLine: { auto: true, spacing: 2 },
+  dimensionAxis: { show: "all", label: "auto", dock: "near", spacing: 1 },
+  measureAxis: { show: "all", dock: "near", spacing: 1, autoMinMax: true, minMax: "min", min: 0, max: 10, label: "auto", logarithmic: false },
+  xAxis: { show: "all", label: "auto", dock: "near", spacing: 1, autoMinMax: true, minMax: "min", min: 0, max: 10 },
+  yAxis: { show: "all", label: "auto", dock: "near", spacing: 1, autoMinMax: true, minMax: "min", min: 0, max: 10 },
+  tooltip: { auto: true },
+  refLine: { refLines: [] },
+  scrollStartPos: 0, scrollbar: "miniChart",
+  totals: { show: true, position: "noTotals", label: "Totals" },
+  usePagination: true,
+};
+
+// Per-supernova extras. Each was identified from the exact browser TypeError
+// the chart throws without it (captured with a headless client), e.g.
+// sn-pie-chart: "Cannot read properties of undefined (reading 'showAsDonut')".
+const NEBULA_EXTRAS: Record<string, Record<string, any>> = {
+  piechart: {
+    donut: { showAsDonut: false, innerRadius: 50 },
+    dataPoint: { auto: true, showLabels: true, showValues: false, showShares: false },
+  },
+  treemap: {
+    labels: {
+      auto: true,
+      headers: { auto: true, show: true },
+      leafs: { auto: true, show: true, position: "auto" },
+      values: { auto: true, show: true },
+      overlay: { auto: true, show: true },
+    },
+  },
+  gauge: {
+    useSegments: false,
+    segments: { segments: [], limits: [] },
+    min: 0, max: 1000, autoMinMax: false,
+    measureAxis: { show: "labels", label: "auto", spacing: 1, autoMinMax: false, min: 0, max: 1000 },
+    orientation: "horizontal", gaugeStyle: "gauge", useLimits: false,
+  },
+  scatterplot: {
+    dataPoint: { auto: true, bubbleSizes: "auto", rangeBubbleSizes: [2, 8], showLabels: false },
+    compressionResolution: "auto", navigation: false, colorMode: "primary",
+    // scatter uses AXIS-SPECIFIC reference lines; the generic refLine.refLines
+    // shape leaves it with nothing to iterate and it renders blank silently.
+    refLine: { refLinesX: [], refLinesY: [] },
+  },
+};
+
+/** Dimension def with the fields nebula charts expect (cId, sort, attribute arrays). */
+function nebulaDim(field: string, cId: string) {
+  return {
+    qDef: { qFieldDefs: [field], qSortCriterias: [{ qSortByLoadOrder: 1, qSortByNumeric: 1 }], autoSort: true, cId },
+    qNullSuppression: false, qOtherTotalSpec: {}, qAttributeExpressions: [], qAttributeDimensions: [], cId,
+  };
+}
+
+function nebulaMeasure(expr: string, cId: string) {
+  return {
+    qDef: { qDef: expr.startsWith("=") ? expr : `=${expr}`, qLabel: "", qNumFormat: { qType: "U" }, autoSort: true, cId, numFormatFromTemplate: true },
+    qSortBy: { qSortByLoadOrder: 1, qSortByNumeric: -1 },
+    qAttributeExpressions: [], qAttributeDimensions: [], cId, coloring: { auto: true },
+  };
+}
+
 /** Build the per-type object properties for createChild. */
 export function buildVizProps(
   viz: string,
@@ -53,11 +142,21 @@ export function buildVizProps(
       },
     };
   }
+  const isNebula = NEBULA_CHART_TYPES.has(viz);
   const cube: Record<string, any> = {
-    qDimensions: dimensions.map((d) => ({ qDef: { qFieldDefs: [d] }, qNullSuppression: false })),
-    qMeasures: measures.map((m) => ({ qDef: { qDef: m.startsWith("=") ? m : `=${m}` } })),
+    qDimensions: dimensions.map((d, i) => (isNebula ? nebulaDim(d, `d${i + 1}`) : { qDef: { qFieldDefs: [d] }, qNullSuppression: false })),
+    qMeasures: measures.map((m, i) => (isNebula ? nebulaMeasure(m, `m${i + 1}`) : { qDef: { qDef: m.startsWith("=") ? m : `=${m}` } })),
     qInitialDataFetch: [{ qLeft: 0, qTop: 0, qWidth: Math.max(1, dimensions.length + measures.length), qHeight: 50 }],
+    ...(isNebula ? {
+      qSuppressZero: false, qSuppressMissing: true, qMode: "S",
+      qInterColumnSortOrder: dimensions.map((_, i) => i).concat(measures.map((_, i) => dimensions.length + i)),
+      // columnOrder must enumerate the columns — an empty array leaves
+      // sn-table with headers but no columns (verified live).
+      columnOrder: dimensions.concat(measures).map((_, i) => i),
+      columnWidths: dimensions.concat(measures).map(() => -1),
+    } : {}),
   };
+  if (isNebula) Object.assign(base, NEBULA_DEFAULTS, NEBULA_EXTRAS[viz] ?? {});
   if (spec?.pivot) {
     // A pivot-table with a straight (default) cube saves fine and renders
     // EMPTY — the qMode:'P' requirement is exactly the kind of engine-accepts
@@ -99,6 +198,22 @@ async function validateObject(app: any, objectId: string, knownViz: Set<string>)
       });
       if (hc.qSize && hc.qSize.qcy === 0 && (hc.qDimensionInfo?.length || hc.qMeasureInfo?.length)) {
         findings.push({ severity: "warn", message: "hypercube computes but returns 0 rows — renders as an empty chart under current selections/data" });
+      }
+      // Nebula supernovas throw on missing default property blocks and render
+      // BLANK while the engine reports a perfectly healthy hypercube. Verified
+      // live: without these, 8 of 12 built-in types draw nothing.
+      if (visualization && NEBULA_CHART_TYPES.has(visualization)) {
+        const props = await obj.getProperties();
+        const missing = ["color", "legend", "dataPoint", "gridLine", "tooltip"].filter((k) => props[k] === undefined);
+        if (missing.length) {
+          findings.push({ severity: "fail", message: `${visualization} is nebula-rendered and is missing default property block(s): ${missing.join(", ")} — the engine computes it fine but the client throws and renders BLANK` });
+        }
+        const noCid = (props.qHyperCubeDef?.qMeasures ?? []).some((m: any) => !m.cId && !m.qDef?.cId);
+        if (noCid) findings.push({ severity: "warn", message: "measures lack cId — some nebula charts need it for coloring/sorting" });
+      }
+      const vspec = visualization ? VIZ_SPECS[visualization] : undefined;
+      if (vspec && vspec.renderVerified === false) {
+        findings.push({ severity: "warn", message: `${visualization} is not render-verified: the engine accepts it and it evaluates, but it has not been proven to paint in a browser client with generically-built properties — check it visually before shipping it to users` });
       }
       const spec = visualization ? VIZ_SPECS[visualization] : undefined;
       if (spec?.pivot && hc.qMode !== "P" && hc.qMode !== "K") {

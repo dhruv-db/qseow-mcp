@@ -19,7 +19,8 @@
   the gate itself caught on its first live run (14 tiles vs a 12-row grid).
 - `scripts/viz_matrix.mjs`: builds one of every supported type through the
   MCP server against a live engine, validates each, probes the negative
-  paths. 12/12 types PASS; 4/4 negative probes caught (verified on May 2026).
+  paths. 11/12 types render-verified in a real browser client, gauge flagged
+  unverified; 4/4 negative probes caught (verified on May 2026).
 - **Analytics trust envelope** on every value-returning tool
   (`evaluate_expression`, `create_hypercube`, `evaluate_master_measure`):
   engine-validated expression warnings (a misspelled field returns null/0
@@ -28,6 +29,17 @@
   measure as a single total AND as a group-by decomposition, compares, and
   flags non-additive measures (Count DISTINCT, ratios, chart-scoped set
   analysis) where sum-of-parts silently misleads.
+- **Nebula render fix (found by pixel-proofing, not by the engine):** modern
+  visualizations are `@nebula.js/sn-*` supernovas rendered client-side. Built
+  from a bare hypercube, 8 of 12 types rendered BLANK while the engine
+  reported a perfectly healthy object. The builder now ships the required
+  default property blocks per type (shared block + per-supernova extras
+  identified from each chart's exact browser TypeError: `showAsDonut` for
+  pie, `settings.labels` for treemap, axis-specific `refLinesX/Y` for
+  scatter, enumerated `columnOrder` for table). `validate_sheet` flags
+  objects missing them. 11 of 12 types are render-verified against a real
+  browser client; `gauge` is flagged `renderVerified: false` and warned on
+  rather than shipped as a silent blank tile.
 - 44 tools total.
 
 ## 0.4.0 — 2026-08-06/07

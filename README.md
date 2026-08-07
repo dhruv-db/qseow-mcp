@@ -41,7 +41,7 @@ Every value-returning analytics tool ships a **trust envelope**: expression vali
 | Tool | Purpose |
 |---|---|
 | `create_sheet` / `add_sheet_object` | Build the UI layer: sheets and visualizations. Creation runs the render-validation gate and returns its verdict |
-| `validate_sheet` | Quality gate (read-only): will these objects actually render? Definition errors, unknown fields/types, empty cubes, pivot qMode traps, cell-placement lint |
+| `validate_sheet` | Quality gate (read-only): will these objects actually render? Definition errors, unknown fields/types, empty cubes, pivot qMode traps, missing nebula property blocks, cell-placement lint |
 | `get_script` / `set_script` | Read and replace an app's load script |
 | `check_script` | Syntax-check without reloading |
 | `reload_app` | Reload and save, returns progress tail |
@@ -69,6 +69,12 @@ Every tool carries MCP tool annotations (`readOnlyHint`, `destructiveHint`, `ide
 Credential redaction applies to **every** QRS egress path: `list_data_connections` and generic `qrs_search` (any entity type, condensed or `full:true`) recursively mask credential-bearing fields (`password`, `passphrase`, `clientsecret`, ...) and secrets embedded in connection strings (`PWD=...`, `apikey=...`). Empty/null credential fields pass through unmasked — "no credential present" is a legitimate signal.
 
 All list tools are paged (`offset`/`limit`, envelope `{total, offset, returned, truncated, items}`) so a site with thousands of apps or users cannot blow the client's context window.
+
+### Render verification
+
+Modern Sense visualizations are **nebula.js supernovas rendered by the client, not the engine** — a hypercube the engine accepts and evaluates perfectly still renders **blank** if the supernova's default property blocks are missing (it throws `Cannot read properties of undefined` in the browser; the engine never knows). The builder ships those blocks per type, and `validate_sheet` flags objects that lack them.
+
+Because engine-side validation cannot prove pixels, `scripts/viz_matrix.mjs` builds one of every supported type against a live site so they can be inspected in a real client. **Render-verified on Qlik Sense May 2026 (headless-browser proof): kpi, barchart, linechart, combochart, piechart, scatterplot, treemap, table, pivot-table, listbox, text-image.** `gauge` is the exception — it builds and evaluates but does not paint with generically-built properties, so it is flagged `renderVerified: false` and the gate warns on it rather than pretending otherwise.
 
 ## Authentication
 

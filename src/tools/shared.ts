@@ -97,11 +97,18 @@ export interface VizSpec {
   minMeasures: number; maxMeasures: number;
   cube: "hypercube" | "listobject" | "none";
   pivot?: boolean; // qMode 'P' required — a straight cube renders empty
+  /** false = the built object has NOT been proven to paint pixels in a real
+   *  browser client (see scripts/viz_matrix.mjs + the headless render proof).
+   *  Absent means verified. */
+  renderVerified?: boolean;
 }
 
 export const VIZ_SPECS: Record<string, VizSpec> = {
   kpi:          { minDims: 0, maxDims: 0, minMeasures: 1, maxMeasures: 2, cube: "hypercube" },
-  gauge:        { minDims: 0, maxDims: 0, minMeasures: 1, maxMeasures: 1, cube: "hypercube" },
+  // gauge: the engine accepts it and the object loads, but sn-gauge paints
+  // nothing with generically-built properties on May 2026 — kept available,
+  // flagged unverified rather than silently shipping a blank tile.
+  gauge:        { minDims: 0, maxDims: 0, minMeasures: 1, maxMeasures: 1, cube: "hypercube", renderVerified: false },
   barchart:     { minDims: 1, maxDims: 2, minMeasures: 1, maxMeasures: 9, cube: "hypercube" },
   linechart:    { minDims: 1, maxDims: 2, minMeasures: 1, maxMeasures: 9, cube: "hypercube" },
   combochart:   { minDims: 1, maxDims: 1, minMeasures: 1, maxMeasures: 9, cube: "hypercube" },
