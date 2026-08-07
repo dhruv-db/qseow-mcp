@@ -6,6 +6,8 @@
 
 > **Status: 0.4.0, pre-release.** All 40 tools exercised end-to-end against Qlik Sense **May 2026 (15.13.8)** on a single-node site, in BOTH certificate and JWT auth modes (including the full mutation lifecycle: copy → set_script → reload → publish → delete, and task start-to-finish). Tool names and shapes may still change.
 
+> qseow-mcp is an independent open-source project by Terenzi LLC. It is **not affiliated with, endorsed by, or sponsored by QlikTech International AB**. Qlik®, Qlik Sense®, and related marks are trademarks of QlikTech International AB, used here only to identify the software this server interoperates with.
+
 ## Tools by persona
 
 Expose only what a given deployment needs with `QSEOW_TOOL_GROUPS`.
