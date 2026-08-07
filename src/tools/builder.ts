@@ -1,0 +1,290 @@
+import { z } from "zod";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { EngineClient } from "../engine.js";
+import type { QrsClient } from "../qrs.js";
+import type { Config } from "../config.js";
+import {
+  text, guid, VIZ_SPECS, checkVizShape, checkCellPlacement, redactSecrets,
+  type VizFinding,
+} from "./shared.js";
+import { expressionWarnings, fieldNames } from "./quality.js";
+
+// The UI-builder layer: create sheets and visualization objects, and — the
+// part that makes it shippable — a validation gate that checks what the
+// engine ACCEPTED will actually render. The engine happily persists a def the
+// client draws as a blank tile; "saved" and "renders" are different claims.
+const READ = { readOnlyHint: true, openWorldHint: false };
+
+const positionSchema = z.object({
+  col: z.number().int().min(0),
+  row: z.number().int().min(0),
+  colspan: z.number().int().positive(),
+  rowspan: z.number().int().positive(),
+}).describe("Grid cell (sheet grid is columns x rows, default 24x12)");
+
+/** Build the per-type object properties for createChild. */
+export function buildVizProps(
+  viz: string,
+  title: string | undefined,
+  dimensions: string[],
+  measures: Array<string>,
+): Record<string, any> {
+  const spec = VIZ_SPECS[viz];
+  const base: Record<string, any> = { qInfo: { qType: viz }, visualization: viz, title: title ?? "" };
+  if (spec?.cube === "listobject") {
+    return {
+      ...base,
+      qListObjectDef: {
+        qDef: { qFieldDefs: [dimensions[0]] },
+        qInitialDataFetch: [{ qLeft: 0, qTop: 0, qWidth: 1, qHeight: 100 }],
+      },
+    };
+  }
+  if (spec?.cube === "none") {
+    // text-image: measures (if any) become inline value tokens in a markdown
+    // paragraph so the object shows something verifiable.
+    return {
+      ...base,
+      markdown: measures.length ? measures.map((_, i) => `[Measure ${i + 1}]`).join(" ") : (title ?? viz),
+      qHyperCubeDef: {
+        qDimensions: [],
+        qMeasures: measures.map((m) => ({ qDef: { qDef: m.startsWith("=") ? m : `=${m}` } })),
+        qInitialDataFetch: [{ qLeft: 0, qTop: 0, qWidth: Math.max(1, measures.length), qHeight: 1 }],
+      },
+    };
+  }
+  const cube: Record<string, any> = {
+    qDimensions: dimensions.map((d) => ({ qDef: { qFieldDefs: [d] }, qNullSuppression: false })),
+    qMeasures: measures.map((m) => ({ qDef: { qDef: m.startsWith("=") ? m : `=${m}` } })),
+    qInitialDataFetch: [{ qLeft: 0, qTop: 0, qWidth: Math.max(1, dimensions.length + measures.length), qHeight: 50 }],
+  };
+  if (spec?.pivot) {
+    // A pivot-table with a straight (default) cube saves fine and renders
+    // EMPTY — the qMode:'P' requirement is exactly the kind of engine-accepts
+    // client-breaks inconsistency the gate exists for.
+    cube.qMode = "P";
+    cube.qAlwaysFullyExpanded = true;
+    cube.qNoOfLeftDims = dimensions.length;
+    cube.qInitialDataFetch = [{ qLeft: 0, qTop: 0, qWidth: 10, qHeight: 50 }];
+  }
+  return { ...base, qHyperCubeDef: cube };
+}
+
+/** Validate one object's layout the way a renderer would consume it. */
+async function validateObject(app: any, objectId: string, knownViz: Set<string>): Promise<{
+  objectId: string; visualization?: string; title?: string;
+  status: "pass" | "warn" | "fail"; findings: VizFinding[];
+}> {
+  const findings: VizFinding[] = [];
+  let visualization: string | undefined;
+  let title: string | undefined;
+  try {
+    const obj = await app.getObject(objectId);
+    const prop = await obj.getProperties();
+    visualization = prop.visualization ?? prop.qInfo?.qType;
+    title = typeof prop.title === "string" ? prop.title : prop.qMetaDef?.title;
+
+    if (visualization && !knownViz.has(visualization)) {
+      findings.push({ severity: "fail", message: `visualization "${visualization}" is neither a built-in nor an installed extension — renders as "Invalid visualization"` });
+    }
+
+    const layout = await obj.getLayout();
+    const hc = layout.qHyperCube;
+    if (hc) {
+      (hc.qDimensionInfo ?? []).forEach((d: any, i: number) => {
+        if (d.qError) findings.push({ severity: "fail", message: `dimension ${i} error qErrorCode=${d.qError.qErrorCode} (${d.qFallbackTitle ?? "?"}) — check the field name` });
+      });
+      (hc.qMeasureInfo ?? []).forEach((m: any, i: number) => {
+        if (m.qError) findings.push({ severity: "fail", message: `measure ${i} error qErrorCode=${m.qError.qErrorCode} (${m.qFallbackTitle ?? "?"}) — check the expression` });
+      });
+      if (hc.qSize && hc.qSize.qcy === 0 && (hc.qDimensionInfo?.length || hc.qMeasureInfo?.length)) {
+        findings.push({ severity: "warn", message: "hypercube computes but returns 0 rows — renders as an empty chart under current selections/data" });
+      }
+      const spec = visualization ? VIZ_SPECS[visualization] : undefined;
+      if (spec?.pivot && hc.qMode !== "P" && hc.qMode !== "K") {
+        findings.push({ severity: "fail", message: `pivot-table cube has qMode='${hc.qMode ?? "S"}' — must be 'P' (or 'K'); a straight cube renders an empty pivot` });
+      }
+      if (spec && spec.cube === "hypercube") {
+        findings.push(...checkVizShape(visualization!, (hc.qDimensionInfo ?? []).length, (hc.qMeasureInfo ?? []).length));
+      }
+      // Expression-level validation on inline measure defs.
+      const props = await obj.getProperties();
+      for (const [i, m] of (props.qHyperCubeDef?.qMeasures ?? []).entries()) {
+        const def: string | undefined = m?.qDef?.qDef;
+        if (def) {
+          for (const w of await expressionWarnings(app, def.startsWith("=") ? def.slice(1) : def)) {
+            findings.push({ severity: "fail", message: `measure ${i}: ${w}` });
+          }
+        }
+      }
+    }
+    const lo = layout.qListObject;
+    if (lo?.qDimensionInfo?.qError) {
+      findings.push({ severity: "fail", message: `listobject field error qErrorCode=${lo.qDimensionInfo.qError.qErrorCode}` });
+    }
+  } catch (e) {
+    findings.push({ severity: "fail", message: `object unreadable: ${e instanceof Error ? e.message : String(e)}` });
+  }
+  const status = findings.some((f) => f.severity === "fail") ? "fail" : findings.length ? "warn" : "pass";
+  return { objectId, visualization, title, status, findings };
+}
+
+async function knownVisualizations(qrs: QrsClient): Promise<Set<string>> {
+  const known = new Set(Object.keys(VIZ_SPECS));
+  // Sense client built-ins beyond the builder's supported set.
+  for (const v of ["filterpane", "map", "histogram", "waterfallchart", "boxplot", "distributionplot", "mekkochart", "bulletchart", "sn-grid-chart", "action-button", "container", "qlik-word-cloud"]) known.add(v);
+  try {
+    const ext = await qrs.get<any[]>("/qrs/extension/full");
+    for (const e of ext) known.add(e.name);
+  } catch { /* extensions unavailable (e.g. narrow identity) — built-ins only */ }
+  return known;
+}
+
+export function registerBuilderTools(server: McpServer, engine: EngineClient, qrs: QrsClient, cfg: Config): void {
+  server.registerTool(
+    "validate_sheet",
+    {
+      description:
+        "Quality gate for the UI layer: validate that a sheet's objects (or one object) will actually render — " +
+        "definition errors, unknown/missing visualization types, unknown fields in expressions, empty-data cubes, " +
+        "pivot qMode traps, and cell-placement problems (unplaced objects, orphan cells, off-grid, overlaps). " +
+        "The engine accepts definitions the client draws blank; this catches those before a user does.",
+      inputSchema: {
+        appId: guid.describe("App id (GUID)"),
+        sheetId: z.string().optional().describe("Sheet to validate (all placed objects + placement lint)"),
+        objectId: z.string().optional().describe("Single object to validate (placement lint skipped)"),
+      },
+      annotations: { ...READ, idempotentHint: true },
+    },
+    async ({ appId, sheetId, objectId }) => {
+      if (!sheetId && !objectId) throw new Error("Provide sheetId or objectId");
+      const app = await engine.app(appId);
+      const known = await knownVisualizations(qrs);
+      if (objectId) {
+        return text(await validateObject(app, objectId, known));
+      }
+      const sheet = await app.getObject(sheetId!);
+      const props = await sheet.getProperties();
+      const children = (await sheet.getChildInfos()).map((c: any) => c.qId);
+      const cells = (props.cells ?? []).map((c: any) => ({
+        name: c.name, col: c.col ?? 0, row: c.row ?? 0, colspan: c.colspan ?? 1, rowspan: c.rowspan ?? 1,
+      }));
+      const placement = checkCellPlacement(cells, children, props.columns ?? 24, props.rows ?? 12);
+      const objects = [];
+      for (const id of children) objects.push(await validateObject(app, id, known));
+      const failing = objects.filter((o) => o.status === "fail").length + placement.filter((f) => f.severity === "fail").length;
+      return text({
+        sheetId,
+        grid: { columns: props.columns ?? 24, rows: props.rows ?? 12 },
+        objectCount: children.length,
+        verdict: failing ? "FAIL" : (placement.length || objects.some((o) => o.status === "warn")) ? "WARN" : "PASS",
+        placementFindings: placement,
+        objects,
+      });
+    },
+  );
+
+  if (!cfg.allowMutations) return;
+
+  server.registerTool(
+    "create_sheet",
+    {
+      description: "Create an empty sheet in an app. Returns the sheet id. MUTATION (additive).",
+      inputSchema: {
+        appId: guid.describe("App id (GUID)"),
+        title: z.string().describe("Sheet title"),
+        description: z.string().optional(),
+        columns: z.number().int().positive().max(48).optional().describe("Grid columns (default 24)"),
+        rows: z.number().int().positive().max(24).optional().describe("Grid rows (default 12)"),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async ({ appId, title, description, columns, rows }) => {
+      const app = await engine.app(appId);
+      const sheet = await app.createObject({
+        qInfo: { qType: "sheet" },
+        qMetaDef: { title, description: description ?? "" },
+        columns: columns ?? 24,
+        rows: rows ?? 12,
+        cells: [],
+        qChildListDef: { qData: { title: "/title" } },
+      });
+      const sheetId = (await sheet.getLayout()).qInfo.qId;
+      await app.doSave();
+      return text({ sheetId, title, grid: { columns: columns ?? 24, rows: rows ?? 12 } });
+    },
+  );
+
+  server.registerTool(
+    "add_sheet_object",
+    {
+      description:
+        "Add a visualization to a sheet and IMMEDIATELY run the render-validation gate on it — creation and " +
+        "quality check in one call; the response's validation.status tells you whether it will actually render. " +
+        `Supported types: ${Object.keys(VIZ_SPECS).join(", ")}. Dimensions are field names; measures are ` +
+        "expressions. MUTATION (additive).",
+      inputSchema: {
+        appId: guid.describe("App id (GUID)"),
+        sheetId: z.string().describe("Sheet id (from create_sheet or list_sheets)"),
+        visualization: z.string().describe("Visualization type, e.g. 'barchart'"),
+        title: z.string().optional(),
+        dimensions: z.array(z.string()).optional().describe("Field names (default none)"),
+        measures: z.array(z.string()).optional().describe("Measure expressions, e.g. 'Sum(Sales)' (default none)"),
+        position: positionSchema.optional().describe("Omit to auto-place below existing cells"),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    },
+    async ({ appId, sheetId, visualization, title, dimensions, measures, position }) => {
+      const dims = dimensions ?? [];
+      const meas = measures ?? [];
+      // Pre-flight: shape + field existence. Fail BEFORE creating a broken
+      // object rather than persisting junk and reporting it.
+      const shape = checkVizShape(visualization, dims.length, meas.length);
+      const hardShape = shape.filter((f) => f.severity === "fail");
+      if (hardShape.length) throw new Error(`refusing to create: ${hardShape.map((f) => f.message).join("; ")}`);
+      const app = await engine.app(appId);
+      const fields = await fieldNames(app);
+      const missing = dims.filter((d) => !fields.has(d));
+      if (missing.length) throw new Error(`refusing to create: dimension field(s) not in the data model: ${missing.join(", ")}`);
+
+      const sheet = await app.getObject(sheetId);
+      const child = await sheet.createChild(buildVizProps(visualization, title, dims, meas));
+      const objectId = (await child.getLayout()).qInfo.qId;
+
+      const props = await sheet.getProperties();
+      const cells = props.cells ?? [];
+      const grid = { columns: props.columns ?? 24, rows: props.rows ?? 12 };
+      let cell;
+      if (position) {
+        cell = { name: objectId, type: visualization, ...position };
+      } else {
+        // Auto-place: next free row band, 8x4 tiles, 3 per row.
+        const n = cells.length;
+        cell = { name: objectId, type: visualization, col: (n % 3) * 8, row: Math.floor(n / 3) * 4, colspan: 8, rowspan: 4 };
+      }
+      // A cell below the grid renders NOTHING (caught by our own gate on the
+      // first live matrix run — 14 auto-placed tiles overflowed the default
+      // 12-row grid). Grow the sheet instead of silently placing off-grid.
+      if (cell.row + cell.rowspan > grid.rows) {
+        props.rows = cell.row + cell.rowspan;
+        grid.rows = props.rows;
+      }
+      if (cell.col + cell.colspan > grid.columns) {
+        props.columns = cell.col + cell.colspan;
+        grid.columns = props.columns;
+      }
+      props.cells = [...cells, cell];
+      await sheet.setProperties(props);
+      await app.doSave();
+
+      const known = await knownVisualizations(qrs);
+      const validation = await validateObject(app, objectId, known);
+      const placement = checkCellPlacement(
+        props.cells.map((c: any) => ({ name: c.name, col: c.col ?? 0, row: c.row ?? 0, colspan: c.colspan ?? 1, rowspan: c.rowspan ?? 1 })),
+        (await sheet.getChildInfos()).map((c: any) => c.qId),
+        grid.columns, grid.rows,
+      ).filter((f) => f.message.includes(objectId));
+      return text(redactSecrets({ objectId, sheetId, cell, validation, placementFindings: placement }));
+    },
+  );
+}

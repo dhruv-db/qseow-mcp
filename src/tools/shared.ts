@@ -86,6 +86,94 @@ export function paginate<T>(items: T[], offset?: number, limit?: number, default
   };
 }
 
+// ── Visualization shape specs (builder + validation gate) ────────────────────
+// What each built-in visualization needs to actually render. Derived from the
+// object model and verified against a live engine by scripts/viz_matrix.mjs —
+// a shape the engine accepts but the client renders blank is exactly the bug
+// class the validation gate exists to catch.
+
+export interface VizSpec {
+  minDims: number; maxDims: number;
+  minMeasures: number; maxMeasures: number;
+  cube: "hypercube" | "listobject" | "none";
+  pivot?: boolean; // qMode 'P' required — a straight cube renders empty
+}
+
+export const VIZ_SPECS: Record<string, VizSpec> = {
+  kpi:          { minDims: 0, maxDims: 0, minMeasures: 1, maxMeasures: 2, cube: "hypercube" },
+  gauge:        { minDims: 0, maxDims: 0, minMeasures: 1, maxMeasures: 1, cube: "hypercube" },
+  barchart:     { minDims: 1, maxDims: 2, minMeasures: 1, maxMeasures: 9, cube: "hypercube" },
+  linechart:    { minDims: 1, maxDims: 2, minMeasures: 1, maxMeasures: 9, cube: "hypercube" },
+  combochart:   { minDims: 1, maxDims: 1, minMeasures: 1, maxMeasures: 9, cube: "hypercube" },
+  piechart:     { minDims: 1, maxDims: 1, minMeasures: 1, maxMeasures: 1, cube: "hypercube" },
+  scatterplot:  { minDims: 1, maxDims: 1, minMeasures: 2, maxMeasures: 3, cube: "hypercube" },
+  treemap:      { minDims: 1, maxDims: 9, minMeasures: 1, maxMeasures: 1, cube: "hypercube" },
+  table:        { minDims: 0, maxDims: 99, minMeasures: 0, maxMeasures: 99, cube: "hypercube" },
+  "pivot-table": { minDims: 1, maxDims: 99, minMeasures: 1, maxMeasures: 99, cube: "hypercube", pivot: true },
+  listbox:      { minDims: 1, maxDims: 1, minMeasures: 0, maxMeasures: 0, cube: "listobject" },
+  "text-image": { minDims: 0, maxDims: 0, minMeasures: 0, maxMeasures: 9, cube: "none" },
+};
+
+export interface VizFinding { severity: "fail" | "warn"; message: string }
+
+/** Shape check for a visualization request; empty result = shape is fine. */
+export function checkVizShape(viz: string, nDims: number, nMeasures: number): VizFinding[] {
+  const spec = VIZ_SPECS[viz];
+  if (!spec) {
+    return [{ severity: "warn", message: `unknown visualization type "${viz}" — not a known built-in; will render only if a matching extension is installed` }];
+  }
+  const out: VizFinding[] = [];
+  if (nDims < spec.minDims || nDims > spec.maxDims) {
+    out.push({ severity: "fail", message: `${viz} needs ${spec.minDims}-${spec.maxDims} dimensions, got ${nDims}` });
+  }
+  if (nMeasures < spec.minMeasures || nMeasures > spec.maxMeasures) {
+    out.push({ severity: "fail", message: `${viz} needs ${spec.minMeasures}-${spec.maxMeasures} measures, got ${nMeasures}` });
+  }
+  return out;
+}
+
+/** Sheet-cell placement lint: every child placed, every cell backed by a
+ *  child, everything inside the grid, no overlaps. These are the "object
+ *  exists but the sheet shows nothing / garbage" failure modes. */
+export function checkCellPlacement(
+  cells: Array<{ name: string; col: number; row: number; colspan: number; rowspan: number }>,
+  childIds: string[],
+  columns: number,
+  rows: number,
+): VizFinding[] {
+  const out: VizFinding[] = [];
+  const placed = new Set(cells.map((c) => c.name));
+  for (const id of childIds) {
+    if (!placed.has(id)) out.push({ severity: "fail", message: `object ${id} has no cell on the sheet — it will not appear` });
+  }
+  for (const c of cells) {
+    if (!childIds.includes(c.name)) {
+      out.push({ severity: "warn", message: `cell references ${c.name} which is not a child of the sheet (orphan cell)` });
+    }
+    if (c.col < 0 || c.row < 0 || c.col + c.colspan > columns || c.row + c.rowspan > rows) {
+      out.push({ severity: "fail", message: `cell ${c.name} (${c.col},${c.row} span ${c.colspan}x${c.rowspan}) exceeds the ${columns}x${rows} grid` });
+    }
+    if (c.colspan <= 0 || c.rowspan <= 0) {
+      out.push({ severity: "fail", message: `cell ${c.name} has non-positive span` });
+    }
+  }
+  for (let i = 0; i < cells.length; i++) {
+    for (let j = i + 1; j < cells.length; j++) {
+      const a = cells[i], b = cells[j];
+      const overlap = a.col < b.col + b.colspan && b.col < a.col + a.colspan &&
+                      a.row < b.row + b.rowspan && b.row < a.row + a.rowspan;
+      if (overlap) out.push({ severity: "warn", message: `cells ${a.name} and ${b.name} overlap` });
+    }
+  }
+  return out;
+}
+
+/** Map engine CheckExpression qBadFieldNames ranges ({qFrom,qCount} into the
+ *  expression string) to the offending substrings. */
+export function badFieldSubstrings(expression: string, ranges: Array<{ qFrom: number; qCount: number }>): string[] {
+  return (ranges ?? []).map((r) => expression.slice(r.qFrom, r.qFrom + r.qCount));
+}
+
 // ── Pure helpers shared by tools and unit tests ──────────────────────────────
 
 /** Walk any JSON value; call visit(path, string) on every string leaf. */

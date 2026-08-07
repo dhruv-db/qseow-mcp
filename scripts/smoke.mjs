@@ -60,7 +60,7 @@ const step = async (label, fn) => {
 const tools = await client.listTools();
 log("tools registered", tools.tools.map((t) => t.name).join(", "));
 
-const MUTATING = ["set_script", "reload_app", "create_app", "copy_app", "publish_app", "delete_app", "start_task", "end_user_sessions"];
+const MUTATING = ["set_script", "reload_app", "create_app", "copy_app", "publish_app", "delete_app", "start_task", "end_user_sessions", "create_sheet", "add_sheet_object"];
 
 await step("annotations present on every tool", () => {
   const missing = tools.tools.filter((t) => typeof t.annotations?.readOnlyHint !== "boolean");
@@ -276,6 +276,72 @@ if (copyId) {
     if (!r.some((l) => l.kind === "inline")) throw new Error(`no inline lineage: ${JSON.stringify(r).slice(0, 200)}`);
     return r.map((l) => l.kind).join(",");
   });
+  // ---- UI builder + validation gate (on the disposable copy: field Sales)
+  let vizSheetId;
+  await step("create_sheet on copy", async () => {
+    const r = JSON.parse(await call("create_sheet", { appId: copyId, title: "Smoke Viz Sheet" }));
+    vizSheetId = r.sheetId;
+    if (!vizSheetId) throw new Error("no sheetId");
+    return vizSheetId;
+  });
+  if (vizSheetId) {
+    await step("add_sheet_object kpi passes the gate", async () => {
+      const r = JSON.parse(await call("add_sheet_object", {
+        appId: copyId, sheetId: vizSheetId, visualization: "kpi", title: "Sales KPI", measures: ["Sum(Sales)"],
+      }));
+      if (r.validation.status !== "pass") throw new Error(`gate=${r.validation.status}: ${JSON.stringify(r.validation.findings)}`);
+      return `objectId=${r.objectId} gate=pass`;
+    });
+    await step("add_sheet_object bad measure -> gate FAILs it", async () => {
+      const r = JSON.parse(await call("add_sheet_object", {
+        appId: copyId, sheetId: vizSheetId, visualization: "kpi", title: "Bad KPI", measures: ["Sum(Salse)"],
+      }));
+      if (r.validation.status !== "fail") throw new Error(`gate=${r.validation.status}, want fail`);
+      return "unknown field caught by gate";
+    });
+    await step("add_sheet_object shape violation -> refused pre-create", async () => {
+      try {
+        await call("add_sheet_object", { appId: copyId, sheetId: vizSheetId, visualization: "piechart", dimensions: ["Sales", "Sales"], measures: ["Sum(Sales)", "Sum(Sales)"] });
+        throw new Error("shape violation was accepted");
+      } catch (e) {
+        if (!/refusing to create/.test(e.message)) throw e;
+        return "refused as designed";
+      }
+    });
+    await step("validate_sheet reports the bad object", async () => {
+      const r = JSON.parse(await call("validate_sheet", { appId: copyId, sheetId: vizSheetId }));
+      if (r.verdict !== "FAIL") throw new Error(`verdict=${r.verdict}, want FAIL (bad KPI present)`);
+      const bad = r.objects.find((o) => o.title === "Bad KPI");
+      if (!bad || bad.status !== "fail") throw new Error("bad object not failed");
+      return `verdict=FAIL objects=${r.objectCount} (as expected with planted bad KPI)`;
+    });
+  }
+
+  // ---- analytics trust envelope
+  await step("evaluate_expression carries activeSelections", async () => {
+    const r = JSON.parse(await call("evaluate_expression", { appId: copyId, expression: "Sum(Sales)" }));
+    if (!Array.isArray(r.activeSelections)) throw new Error("no activeSelections");
+    return `value=${r.value} selections=${r.activeSelections.length}`;
+  });
+  await step("evaluate_expression warns on unknown field", async () => {
+    const r = JSON.parse(await call("evaluate_expression", { appId: copyId, expression: "Sum(Salse)" }));
+    if (!r.warnings || !r.warnings.some((w) => /unknown field/i.test(w))) throw new Error(`no unknown-field warning: ${JSON.stringify(r)}`);
+    return r.warnings[0];
+  });
+  await step("crosscheck_expression consistent on additive measure", async () => {
+    const r = JSON.parse(await call("crosscheck_expression", { appId: copyId, expression: "Sum(Sales)", groupBy: "Sales" }));
+    if (r.consistent !== true) throw new Error(`inconsistent: ${JSON.stringify(r)}`);
+    return `total=${r.total} sumOfGroups=${r.sumOfGroups} consistent`;
+  });
+  await step("crosscheck_expression flags non-additive measure", async () => {
+    // Demo app: Count(distinct Month)=2 overall, but each Region also has 2
+    // -> sum of groups 4 != 2. The classic double-count a naive agent reports.
+    await call("clear_selections", { appId });
+    const r = JSON.parse(await call("crosscheck_expression", { appId, expression: "Count(distinct Month)", groupBy: "Region" }));
+    if (r.consistent !== false) throw new Error(`expected inconsistent, got: ${JSON.stringify(r)}`);
+    return `total=${r.total} sumOfGroups=${r.sumOfGroups} flagged non-additive`;
+  });
+
   await step("get_script redacts embedded credentials", async () => {
     // Regression for the script-egress gap: scripts are a credential egress
     // path just like QRS connection strings.

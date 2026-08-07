@@ -4,7 +4,7 @@
 
 **The glue layer for a Qlik support agent.** Qlik Cloud ships a native MCP endpoint; the client-managed estate — where a large share of enterprise Qlik still runs — has nothing equivalent. This server exposes the on-prem API surface (Repository/QRS, Engine/QIX, Proxy) as [Model Context Protocol](https://modelcontextprotocol.io) tools, so an agent can do what a support engineer does when a number is wrong: walk KPI → object → sheet → app → script → source, evaluating definitions at every step — plus govern, query, and build against the site.
 
-> **Status: 0.4.0, pre-release.** All 40 tools exercised end-to-end against Qlik Sense **May 2026 (15.13.8)** on a single-node site, in BOTH certificate and JWT auth modes (including the full mutation lifecycle: copy → set_script → reload → publish → delete, and task start-to-finish). Tool names and shapes may still change.
+> **Status: 0.5.0, pre-release.** All 44 tools exercised end-to-end against Qlik Sense **May 2026 (15.13.8)** on a single-node site, in BOTH certificate and JWT auth modes (including the full mutation lifecycle: copy → set_script → reload → publish → delete, and task start-to-finish). Tool names and shapes may still change.
 
 > qseow-mcp is an independent open-source project by Terenzi LLC. It is **not affiliated with, endorsed by, or sponsored by QlikTech International AB**. Qlik®, Qlik Sense®, and related marks are trademarks of QlikTech International AB, used here only to identify the software this server interoperates with.
 
@@ -21,6 +21,9 @@ Expose only what a given deployment needs with `QSEOW_TOOL_GROUPS`.
 | `create_hypercube` | Group-by query: dimensions × measures → rows |
 | `get_field_values` | Distinct values with selection state, optional search |
 | `select_field_values` / `clear_selections` / `get_current_selections` | Drive and inspect selection state |
+| `crosscheck_expression` | Adversarial self-check: total vs sum-of-groups — flags non-additive measures and scoping bugs before a number reaches a user |
+
+Every value-returning analytics tool ships a **trust envelope**: expression validation warnings (a misspelled field returns null/0 *without erroring* — the engine's worst habit) and the active selections the value was computed under, so a filtered number can never masquerade as the unfiltered truth.
 
 **Inspector** — the troubleshooting loop (ships with the analyst group)
 | Tool | Purpose |
@@ -37,6 +40,8 @@ Expose only what a given deployment needs with `QSEOW_TOOL_GROUPS`.
 **Developer** — build and ship apps (Engine + QRS)
 | Tool | Purpose |
 |---|---|
+| `create_sheet` / `add_sheet_object` | Build the UI layer: sheets and visualizations. Creation runs the render-validation gate and returns its verdict |
+| `validate_sheet` | Quality gate (read-only): will these objects actually render? Definition errors, unknown fields/types, empty cubes, pivot qMode traps, cell-placement lint |
 | `get_script` / `set_script` | Read and replace an app's load script |
 | `check_script` | Syntax-check without reloading |
 | `reload_app` | Reload and save, returns progress tail |

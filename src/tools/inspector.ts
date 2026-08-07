@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { EngineClient } from "../engine.js";
 import { text, pageParams, paginate, walkStrings, classifyLineage, scrubString, redactSecrets, guid } from "./shared.js";
+import { expressionWarnings, activeSelections } from "./quality.js";
 
 // The troubleshooting loop: KPI -> object -> sheet -> app -> script -> source.
 // Everything here is read-only introspection of a single app's definition
@@ -294,6 +295,7 @@ export function registerInspectorTools(server: McpServer, engine: EngineClient):
       const prop = await measure.getProperties();
       const expression: string | undefined = prop.qMeasure?.qDef;
       if (!expression) throw new Error(`Measure ${id} has no expression definition`);
+      const warnings = await expressionWarnings(app, expression);
       const r = await app.evaluateEx(expression);
       return text({
         measureId: id,
@@ -302,6 +304,8 @@ export function registerInspectorTools(server: McpServer, engine: EngineClient):
         expression,
         value: r.qIsNumeric ? r.qNumber : r.qText,
         isNumeric: r.qIsNumeric,
+        ...(warnings.length ? { warnings } : {}),
+        activeSelections: await activeSelections(app),
       });
     },
   );

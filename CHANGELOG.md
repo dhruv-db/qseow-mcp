@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.5.0 — 2026-08-07
+
+**The UI builder + render-validation gate, and the analytics trust envelope.**
+
+- `create_sheet` / `add_sheet_object` (mutation-gated): build sheets and
+  visualizations. `add_sheet_object` refuses bad shapes and unknown dimension
+  fields BEFORE creating, then runs the validation gate on what it created —
+  the response says whether the object will actually render.
+- `validate_sheet` (read-only): the standalone gate for any sheet or object —
+  definition errors (qError), unknown visualization types (vs built-ins +
+  installed extensions), unknown fields in measure expressions, empty-data
+  cubes, the pivot-table qMode='P' trap, and cell-placement lint (unplaced
+  objects, orphan cells, off-grid, overlaps). The engine happily persists
+  definitions the client renders blank; "saved" and "renders" are different
+  claims and the gate closes the gap.
+- Auto-placement grows the sheet grid when tiles would overflow it — a bug
+  the gate itself caught on its first live run (14 tiles vs a 12-row grid).
+- `scripts/viz_matrix.mjs`: builds one of every supported type through the
+  MCP server against a live engine, validates each, probes the negative
+  paths. 12/12 types PASS; 4/4 negative probes caught (verified on May 2026).
+- **Analytics trust envelope** on every value-returning tool
+  (`evaluate_expression`, `create_hypercube`, `evaluate_master_measure`):
+  engine-validated expression warnings (a misspelled field returns null/0
+  WITHOUT erroring) and the active selections the value was computed under.
+- `crosscheck_expression` (read-only): adversarial self-check — evaluates a
+  measure as a single total AND as a group-by decomposition, compares, and
+  flags non-additive measures (Count DISTINCT, ratios, chart-scoped set
+  analysis) where sum-of-parts silently misleads.
+- 44 tools total.
+
 ## 0.4.0 — 2026-08-06/07
 
 **Tier 2: the ops layer** (ships with the `admin` group):

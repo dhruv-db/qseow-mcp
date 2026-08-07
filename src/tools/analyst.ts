@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { EngineClient } from "../engine.js";
 import { text, pageParams, paginate, buildSelectValues, guid } from "./shared.js";
+import { expressionWarnings, activeSelections } from "./quality.js";
 
 // Engine tools operate on a closed domain (the Qlik site). Selections mutate
 // only session state — no persisted data changes — so selection tools carry
@@ -54,7 +55,7 @@ export function registerAnalystTools(server: McpServer, engine: EngineClient): v
   server.registerTool(
     "evaluate_expression",
     {
-      description: "Evaluate a Qlik expression against an app in the current selection state, e.g. \"Sum(Sales)\" or \"Count(distinct Customer)\".",
+      description: "Evaluate a Qlik expression against an app in the current selection state, e.g. \"Sum(Sales)\" or \"Count(distinct Customer)\". The response carries a trust envelope: expression validation warnings (a misspelled field returns null/0 WITHOUT erroring) and the active selections the value was computed under.",
       inputSchema: {
         appId: guid.describe("App id (GUID)"),
         expression: z.string().describe("Qlik expression without leading ="),
@@ -63,8 +64,18 @@ export function registerAnalystTools(server: McpServer, engine: EngineClient): v
     },
     async ({ appId, expression }) => {
       const app = await engine.app(appId);
+      const warnings = await expressionWarnings(app, expression);
       const r = await app.evaluateEx(expression);
-      return text({ expression, value: r.qText ?? r.qNumber, isNumeric: r.qIsNumeric });
+      const selections = await activeSelections(app);
+      return text({
+        expression,
+        value: r.qText ?? r.qNumber,
+        isNumeric: r.qIsNumeric,
+        ...(warnings.length ? { warnings } : {}),
+        // Always present, even when empty: "computed with no selections" is
+        // itself a claim the agent should be able to relay.
+        activeSelections: selections,
+      });
     },
   );
 
@@ -102,10 +113,17 @@ export function registerAnalystTools(server: McpServer, engine: EngineClient): v
       if (sortByMeasureDesc !== undefined) {
         def.qHyperCubeDef.qMeasures[sortByMeasureDesc].qSortBy = { qSortByNumeric: -1 };
       }
+      const warnings: string[] = [];
+      for (const m of measures) {
+        for (const w of await expressionWarnings(app, m.startsWith("=") ? m.slice(1) : m)) warnings.push(`measure "${m}": ${w}`);
+      }
       const obj = await app.createSessionObject(def);
       try {
         const layout = await obj.getLayout();
         const cube = layout.qHyperCube;
+        (cube.qDimensionInfo ?? []).forEach((d: any, i: number) => {
+          if (d.qError) warnings.push(`dimension "${dimensions[i]}": engine error qErrorCode=${d.qError.qErrorCode} — check the field name`);
+        });
         const page = cube.qDataPages?.[0];
         const rows = (page?.qMatrix ?? []).map((r: any[]) =>
           r.map((c) => (c.qNum !== undefined && c.qNum !== "NaN" && !Number.isNaN(c.qNum) ? c.qNum : c.qText)),
@@ -115,6 +133,8 @@ export function registerAnalystTools(server: McpServer, engine: EngineClient): v
           totalRows: cube.qSize?.qcy,
           returnedRows: rows.length,
           rows,
+          ...(warnings.length ? { warnings } : {}),
+          activeSelections: await activeSelections(app),
         });
       } finally {
         await app.destroySessionObject(obj.id).catch(() => {});
@@ -216,6 +236,71 @@ export function registerAnalystTools(server: McpServer, engine: EngineClient): v
         field, requested: values, applied: ok, mode,
         selectedCount: verify?.count, selectedSample: verify?.sample,
       });
+    },
+  );
+
+  server.registerTool(
+    "crosscheck_expression",
+    {
+      description:
+        "Adversarial self-check for a numeric answer: evaluates the expression as a single total AND as a " +
+        "group-by decomposition over a dimension, then compares total vs sum-of-groups. Agreement is strong " +
+        "evidence the number is internally consistent; disagreement flags a non-additive measure (Count DISTINCT, " +
+        "ratios, set-analysis pinned to chart scope) or a scoping bug — exactly the cases where a single evaluated " +
+        "number can mislead. Use before presenting high-stakes figures.",
+      inputSchema: {
+        appId: guid.describe("App id (GUID)"),
+        expression: z.string().describe("Measure expression, e.g. 'Sum(Sales)'"),
+        groupBy: z.string().describe("Dimension field to decompose over"),
+      },
+      annotations: READ,
+    },
+    async ({ appId, expression, groupBy }) => {
+      const app = await engine.app(appId);
+      const warnings = await expressionWarnings(app, expression);
+      const total = await app.evaluateEx(expression);
+      const obj = await app.createSessionObject({
+        qInfo: { qType: "mcp-crosscheck" },
+        qHyperCubeDef: {
+          qDimensions: [{ qDef: { qFieldDefs: [groupBy] }, qNullSuppression: false }],
+          qMeasures: [{ qDef: { qDef: expression.startsWith("=") ? expression : `=${expression}` } }],
+          qInitialDataFetch: [{ qLeft: 0, qTop: 0, qWidth: 2, qHeight: 1000 }],
+        },
+      });
+      try {
+        const layout = await obj.getLayout();
+        const cube = layout.qHyperCube;
+        const groups = cube.qDataPages?.[0]?.qMatrix ?? [];
+        const totalGroups = cube.qSize?.qcy ?? groups.length;
+        if (totalGroups > groups.length) {
+          warnings.push(`decomposition truncated: ${groups.length} of ${totalGroups} groups fetched — sum-of-groups is partial, comparison unreliable`);
+        }
+        const sumOfGroups = groups.reduce((acc: number, r: any[]) => {
+          const v = r[1]?.qNum;
+          return acc + (typeof v === "number" && !Number.isNaN(v) ? v : 0);
+        }, 0);
+        const totalNum = total.qIsNumeric ? total.qNumber : NaN;
+        const delta = totalNum - sumOfGroups;
+        const consistent = Number.isFinite(totalNum) &&
+          totalGroups <= groups.length &&
+          Math.abs(delta) <= Math.max(0.005, Math.abs(totalNum) * 1e-9);
+        return text({
+          expression,
+          groupBy,
+          total: totalNum,
+          sumOfGroups,
+          groupCount: totalGroups,
+          delta,
+          consistent,
+          interpretation: consistent
+            ? "total equals sum of groups — internally consistent and additive over this dimension"
+            : "total does NOT equal sum of groups — the measure is non-additive over this dimension (Count DISTINCT, ratio, or scoped set analysis) or the decomposition is partial; do not present sum-of-groups as the total",
+          ...(warnings.length ? { warnings } : {}),
+          activeSelections: await activeSelections(app),
+        });
+      } finally {
+        await app.destroySessionObject(obj.id).catch(() => {});
+      }
     },
   );
 

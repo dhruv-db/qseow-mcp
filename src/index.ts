@@ -11,6 +11,7 @@ import { registerAnalystTools } from "./tools/analyst.js";
 import { registerDeveloperTools } from "./tools/developer.js";
 import { registerInspectorTools } from "./tools/inspector.js";
 import { registerOpsTools } from "./tools/ops.js";
+import { registerBuilderTools } from "./tools/builder.js";
 
 // Single source of truth for the version: package.json (dist/ sits one level
 // below it both in the repo and in the npm tarball).
@@ -38,7 +39,12 @@ async function main(): Promise<void> {
     // items, lineage) ships with the analyst group: read-only introspection.
     registerInspectorTools(server, engine);
   }
-  if (cfg.toolGroups.has("developer")) registerDeveloperTools(server, engine, qrs, cfg);
+  if (cfg.toolGroups.has("developer")) {
+    registerDeveloperTools(server, engine, qrs, cfg);
+    // UI builder + render-validation gate. validate_sheet is read-only and
+    // always registers with the group; create/add are mutation-gated inside.
+    registerBuilderTools(server, engine, qrs, cfg);
+  }
 
   const transport = new StdioServerTransport();
   await server.connect(transport);

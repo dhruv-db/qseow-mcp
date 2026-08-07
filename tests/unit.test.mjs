@@ -15,7 +15,9 @@ import {
   redactSecrets, paginate, walkStrings, classifyLineage, buildSelectValues,
   tailText, decodeRuleActions, lintSecurityRules, summarizeHealthcheck,
   scrubString, qrsQuote, REDACTED,
+  VIZ_SPECS, checkVizShape, checkCellPlacement, badFieldSubstrings,
 } from "../dist/tools/shared.js";
+import { buildVizProps } from "../dist/tools/builder.js";
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
 const fixture = (name) => JSON.parse(readFileSync(join(FIXTURES, name), "utf8"));
@@ -193,6 +195,54 @@ test("summarizeHealthcheck flattens the operator numbers, keeps raw", () => {
   // Some engine builds return counts, not arrays — both shapes must survive.
   const s2 = summarizeHealthcheck({ apps: { active_docs: 3 } });
   assert.equal(s2.apps.activeDocs, 3);
+});
+
+// ── UI builder validation logic ──────────────────────────────────────────────
+
+test("checkVizShape enforces per-type dimension/measure counts", () => {
+  assert.equal(checkVizShape("kpi", 0, 1).length, 0);
+  assert.equal(checkVizShape("kpi", 1, 1)[0].severity, "fail");        // kpi takes no dims
+  assert.equal(checkVizShape("piechart", 1, 1).length, 0);
+  assert.equal(checkVizShape("scatterplot", 1, 1)[0].severity, "fail"); // needs 2-3 measures
+  assert.equal(checkVizShape("made-up-viz", 0, 0)[0].severity, "warn"); // unknown type = warn, not fail
+});
+
+test("buildVizProps: pivot gets qMode P, listbox gets qListObjectDef, text-image no cube dims", () => {
+  const pivot = buildVizProps("pivot-table", "t", ["Region"], ["Sum(Sales)"]);
+  assert.equal(pivot.qHyperCubeDef.qMode, "P");
+  const lb = buildVizProps("listbox", "t", ["Region"], []);
+  assert.ok(lb.qListObjectDef);
+  assert.ok(!lb.qHyperCubeDef);
+  const ti = buildVizProps("text-image", "t", [], []);
+  assert.equal(ti.qHyperCubeDef.qDimensions.length, 0);
+  const bar = buildVizProps("barchart", "t", ["Region"], ["Sum(Sales)"]);
+  assert.equal(bar.qHyperCubeDef.qMeasures[0].qDef.qDef, "=Sum(Sales)");
+});
+
+test("checkCellPlacement catches unplaced, orphan, off-grid, overlap", () => {
+  const f = checkCellPlacement(
+    [
+      { name: "a", col: 0, row: 0, colspan: 8, rowspan: 4 },
+      { name: "a2", col: 4, row: 2, colspan: 8, rowspan: 4 },  // overlaps a
+      { name: "ghost", col: 0, row: 8, colspan: 4, rowspan: 2 }, // orphan
+      { name: "b", col: 20, row: 10, colspan: 8, rowspan: 4 },   // off-grid (24x12)
+    ],
+    ["a", "a2", "b", "unplaced"],
+    24, 12,
+  );
+  const msgs = f.map((x) => x.message).join(" | ");
+  assert.match(msgs, /unplaced has no cell/);
+  assert.match(msgs, /ghost which is not a child/);
+  assert.match(msgs, /exceeds the 24x12 grid/);
+  assert.match(msgs, /overlap/);
+  const clean = checkCellPlacement([{ name: "a", col: 0, row: 0, colspan: 8, rowspan: 4 }], ["a"], 24, 12);
+  assert.equal(clean.length, 0);
+});
+
+test("badFieldSubstrings maps engine ranges to the offending text", () => {
+  const expr = "Sum(Salse) + Count(Region)";
+  assert.deepEqual(badFieldSubstrings(expr, [{ qFrom: 4, qCount: 5 }]), ["Salse"]);
+  assert.deepEqual(badFieldSubstrings(expr, []), []);
 });
 
 // ── deep mode: a real snapshot directory of recorded qProps ──────────────────
