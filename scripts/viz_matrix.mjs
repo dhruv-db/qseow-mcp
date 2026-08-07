@@ -39,7 +39,7 @@ const MATRIX = [
   ["table", ["Region", "Product"], ["Sum(Sales)", "Sum(Qty)"]],
   ["pivot-table", ["Region"], ["Sum(Sales)"]],
   ["listbox", ["Region"], []],
-  ["text-image", [], ["Sum(Sales)"]],
+  ["text-image", [], []],   // authored text only — measures are refused by design
 ];
 
 const transport = new StdioClientTransport({

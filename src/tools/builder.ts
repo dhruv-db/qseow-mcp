@@ -71,13 +71,17 @@ const NEBULA_EXTRAS: Record<string, Record<string, any>> = {
     dataPoint: { auto: true, showLabels: true, showValues: false, showShares: false },
   },
   treemap: {
+    // sn-treemap destructures settings.labels.{headers,leafs,overlay}.auto —
+    // each sub-block must exist with its own `auto`, and leafs carries the
+    // label/value toggles (not a sibling `values` block).
     labels: {
       auto: true,
-      headers: { auto: true, show: true },
-      leafs: { auto: true, show: true, position: "auto" },
-      values: { auto: true, show: true },
-      overlay: { auto: true, show: true },
+      headers: { auto: true, show: true, fontSize: 13 },
+      leafs: { auto: true, show: true, label: true, value: true, position: "auto", fontSize: 13 },
+      overlay: { auto: true, show: true, fontSize: 13 },
     },
+    dataPoint: { auto: true, showLabels: true },
+    legend: { show: true, dock: "auto", showTitle: true, title: {} },
   },
   gauge: {
     useSegments: false,
@@ -93,6 +97,13 @@ const NEBULA_EXTRAS: Record<string, Record<string, any>> = {
     // shape leaves it with nothing to iterate and it renders blank silently.
     refLine: { refLinesX: [], refLinesY: [] },
   },
+};
+
+/** Minimum tile the type needs to actually draw at sheet scale. */
+const MIN_TILE: Record<string, { colspan: number; rowspan: number }> = {
+  treemap: { colspan: 8, rowspan: 8 },
+  scatterplot: { colspan: 8, rowspan: 6 },
+  piechart: { colspan: 8, rowspan: 6 },
 };
 
 /** Dimension def with the fields nebula charts expect (cId, sort, attribute arrays). */
@@ -130,16 +141,15 @@ export function buildVizProps(
     };
   }
   if (spec?.cube === "none") {
-    // text-image: measures (if any) become inline value tokens in a markdown
-    // paragraph so the object shows something verifiable.
+    // text-image renders authored rich text. Embedding a live measure needs
+    // the Sense client's own inline markup, which cannot be synthesized
+    // reliably from here — an earlier attempt shipped literal "[Measure 1]"
+    // placeholder text to users. So: render the given text, and take no
+    // measures (VIZ_SPECS enforces maxMeasures 0). Use a kpi for a live value.
     return {
       ...base,
-      markdown: measures.length ? measures.map((_, i) => `[Measure ${i + 1}]`).join(" ") : (title ?? viz),
-      qHyperCubeDef: {
-        qDimensions: [],
-        qMeasures: measures.map((m) => ({ qDef: { qDef: m.startsWith("=") ? m : `=${m}` } })),
-        qInitialDataFetch: [{ qLeft: 0, qTop: 0, qWidth: Math.max(1, measures.length), qHeight: 1 }],
-      },
+      markdown: title ?? "",
+      showTitles: true, subtitle: "", footnote: "",
     };
   }
   const isNebula = NEBULA_CHART_TYPES.has(viz);
@@ -374,8 +384,12 @@ export function registerBuilderTools(server: McpServer, engine: EngineClient, qr
         cell = { name: objectId, type: visualization, ...position };
       } else {
         // Auto-place: next free row band, 8x4 tiles, 3 per row.
+        // Treemap refuses to draw ("This chart cannot be displayed") in a
+        // short tile — it needs real estate. Verified live at sheet-tile
+        // sizes, which is why auto-placement is per-type, not one-size.
         const n = cells.length;
-        cell = { name: objectId, type: visualization, col: (n % 3) * 8, row: Math.floor(n / 3) * 4, colspan: 8, rowspan: 4 };
+        const span = MIN_TILE[visualization] ?? { colspan: 8, rowspan: 4 };
+        cell = { name: objectId, type: visualization, col: (n % 3) * 8, row: Math.floor(n / 3) * 4, ...span };
       }
       // A cell below the grid renders NOTHING (caught by our own gate on the
       // first live matrix run — 14 auto-placed tiles overflowed the default

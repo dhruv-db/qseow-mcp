@@ -105,20 +105,27 @@ export interface VizSpec {
 
 export const VIZ_SPECS: Record<string, VizSpec> = {
   kpi:          { minDims: 0, maxDims: 0, minMeasures: 1, maxMeasures: 2, cube: "hypercube" },
-  // gauge: the engine accepts it and the object loads, but sn-gauge paints
-  // nothing with generically-built properties on May 2026 — kept available,
-  // flagged unverified rather than silently shipping a blank tile.
+  // gauge: the engine accepts it and the object loads, but sn-gauge draws
+  // only a partial needle fragment (no arc, no value) with generically-built
+  // properties on May 2026 — kept available, flagged unverified rather than
+  // shipping a chart that renders incorrectly.
   gauge:        { minDims: 0, maxDims: 0, minMeasures: 1, maxMeasures: 1, cube: "hypercube", renderVerified: false },
   barchart:     { minDims: 1, maxDims: 2, minMeasures: 1, maxMeasures: 9, cube: "hypercube" },
   linechart:    { minDims: 1, maxDims: 2, minMeasures: 1, maxMeasures: 9, cube: "hypercube" },
   combochart:   { minDims: 1, maxDims: 1, minMeasures: 1, maxMeasures: 9, cube: "hypercube" },
   piechart:     { minDims: 1, maxDims: 1, minMeasures: 1, maxMeasures: 1, cube: "hypercube" },
   scatterplot:  { minDims: 1, maxDims: 1, minMeasures: 2, maxMeasures: 3, cube: "hypercube" },
-  treemap:      { minDims: 1, maxDims: 9, minMeasures: 1, maxMeasures: 1, cube: "hypercube" },
+  // treemap: builds and evaluates, and its LEGEND paints — but the plot area
+  // renders Qlik's error state ("This chart cannot be displayed") at every
+  // tile size tried. sn-treemap wants more than a generically-built property
+  // set. Flagged rather than shipped as a chart that errors in front of users.
+  treemap:      { minDims: 1, maxDims: 9, minMeasures: 1, maxMeasures: 1, cube: "hypercube", renderVerified: false },
   table:        { minDims: 0, maxDims: 99, minMeasures: 0, maxMeasures: 99, cube: "hypercube" },
   "pivot-table": { minDims: 1, maxDims: 99, minMeasures: 1, maxMeasures: 99, cube: "hypercube", pivot: true },
   listbox:      { minDims: 1, maxDims: 1, minMeasures: 0, maxMeasures: 0, cube: "listobject" },
-  "text-image": { minDims: 0, maxDims: 0, minMeasures: 0, maxMeasures: 9, cube: "none" },
+  // text-image takes authored text only: embedding a live measure requires
+  // the client's inline markup, which can't be synthesized server-side.
+  "text-image": { minDims: 0, maxDims: 0, minMeasures: 0, maxMeasures: 0, cube: "none" },
 };
 
 export interface VizFinding { severity: "fail" | "warn"; message: string }

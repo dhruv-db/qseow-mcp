@@ -37,9 +37,21 @@
   identified from each chart's exact browser TypeError: `showAsDonut` for
   pie, `settings.labels` for treemap, axis-specific `refLinesX/Y` for
   scatter, enumerated `columnOrder` for table). `validate_sheet` flags
-  objects missing them. 11 of 12 types are render-verified against a real
-  browser client; `gauge` is flagged `renderVerified: false` and warned on
-  rather than shipped as a silent blank tile.
+  objects missing them. **10 of 12 types are render-verified against a real
+  browser client at sheet-tile sizes**; `gauge` (paints nothing) and
+  `treemap` (legend paints, plot area shows Qlik's error state) are flagged
+  `renderVerified: false` and warned on rather than shipped as charts that
+  fail in front of users.
+- `text-image` no longer fabricates `[Measure 1]` placeholder text — embedding
+  a live measure needs the client's own inline markup, so the type now takes
+  authored text only (measures are refused) and a kpi is the right tool for a
+  live value.
+- Per-type minimum tile sizes in auto-placement (a short tile makes some
+  charts refuse to draw).
+- `scripts/render_proof.mjs`: the headless-browser render proof, shipped so
+  the pixel check is reproducible. Detects Qlik's error state explicitly —
+  counting painted SVG nodes reports false PASSes because a broken chart
+  still paints its legend.
 - 44 tools total.
 
 ## 0.4.0 — 2026-08-06/07

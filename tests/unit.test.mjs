@@ -213,8 +213,12 @@ test("buildVizProps: pivot gets qMode P, listbox gets qListObjectDef, text-image
   const lb = buildVizProps("listbox", "t", ["Region"], []);
   assert.ok(lb.qListObjectDef);
   assert.ok(!lb.qHyperCubeDef);
-  const ti = buildVizProps("text-image", "t", [], []);
-  assert.equal(ti.qHyperCubeDef.qDimensions.length, 0);
+  // text-image renders authored text only — no cube, and no fabricated
+  // "[Measure 1]" placeholder text (that shipped to users once).
+  const ti = buildVizProps("text-image", "Hello", [], []);
+  assert.equal(ti.qHyperCubeDef, undefined);
+  assert.equal(ti.markdown, "Hello");
+  assert.equal(checkVizShape("text-image", 0, 1)[0].severity, "fail"); // measures refused
   const bar = buildVizProps("barchart", "t", ["Region"], ["Sum(Sales)"]);
   assert.equal(bar.qHyperCubeDef.qMeasures[0].qDef.qDef, "=Sum(Sales)");
 });

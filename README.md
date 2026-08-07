@@ -74,7 +74,22 @@ All list tools are paged (`offset`/`limit`, envelope `{total, offset, returned, 
 
 Modern Sense visualizations are **nebula.js supernovas rendered by the client, not the engine** — a hypercube the engine accepts and evaluates perfectly still renders **blank** if the supernova's default property blocks are missing (it throws `Cannot read properties of undefined` in the browser; the engine never knows). The builder ships those blocks per type, and `validate_sheet` flags objects that lack them.
 
-Because engine-side validation cannot prove pixels, `scripts/viz_matrix.mjs` builds one of every supported type against a live site so they can be inspected in a real client. **Render-verified on Qlik Sense May 2026 (headless-browser proof): kpi, barchart, linechart, combochart, piechart, scatterplot, treemap, table, pivot-table, listbox, text-image.** `gauge` is the exception — it builds and evaluates but does not paint with generically-built properties, so it is flagged `renderVerified: false` and the gate warns on it rather than pretending otherwise.
+Because engine-side validation cannot prove pixels, two scripts close the loop: `scripts/viz_matrix.mjs` builds one of every supported type against a live site, and `scripts/render_proof.mjs` drives a real headless browser over the result at **sheet-tile sizes** and reports what actually drew.
+
+**Render-verified on Qlik Sense May 2026: kpi, barchart, linechart, combochart, piechart, scatterplot, table, pivot-table, listbox, text-image (10 of 12).**
+
+Two types are flagged `renderVerified: false` — `validate_sheet` warns on them instead of claiming they work:
+
+| Type | What actually happens |
+|---|---|
+| `gauge` | Builds and evaluates; paints nothing (or a partial needle fragment). No console error. |
+| `treemap` | Builds and evaluates, and its legend paints — but the plot area shows Qlik's error state at every tile size tried. |
+
+Three methodology notes worth stealing if you build something similar:
+
+1. Objects render at **sheet-tile size**, not full viewport — a chart that paints at 900×620 can refuse in a 640×150 tile.
+2. **Counting painted SVG nodes is not proof.** A broken chart still draws its legend; that is how an earlier version of this proof reported a false PASS for treemap.
+3. **Automated verdicts are advisory; the screenshot is the authority.** Qlik draws some error states as SVG text inside a shadow root that neither DOM scraping nor Playwright text locators matched reliably — treemap displayed "This chart cannot be displayed." while every automated probe called it rendered. Run `render_proof.mjs` with `SHOTS=<dir>` and look at the images.
 
 ## Authentication
 
