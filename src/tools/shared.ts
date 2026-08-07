@@ -91,6 +91,101 @@ export function classifyLineage(discriminator: string | undefined, statement: st
   return "other";
 }
 
+/** Last n lines of a (possibly huge) log. Returns the tail plus how many
+ *  lines were dropped, so a truncated log can't masquerade as complete. */
+export function tailText(text: string, n: number): { lines: string[]; dropped: number; totalLines: number } {
+  const all = text.split(/\r?\n/);
+  // A trailing newline yields one empty final element — not a log line.
+  if (all.length > 0 && all[all.length - 1] === "") all.pop();
+  const lines = all.slice(Math.max(0, all.length - n));
+  return { lines, dropped: all.length - lines.length, totalLines: all.length };
+}
+
+// QRS systemrule `actions` bitmask, per the QMC security-rule editor.
+const RULE_ACTIONS: Array<[number, string]> = [
+  [1, "Create"], [2, "Read"], [4, "Update"], [8, "Delete"], [16, "Export"],
+  [32, "Publish"], [64, "Change owner"], [128, "Change role"], [256, "Export data"],
+  [512, "Offline access"], [1024, "Distribute"], [2048, "Duplicate"], [4096, "Approve"],
+];
+
+export function decodeRuleActions(mask: number): string[] {
+  const out = RULE_ACTIONS.filter(([bit]) => (mask & bit) !== 0).map(([, name]) => name);
+  return out.length ? out : [`unknown(${mask})`];
+}
+
+export interface SecurityRuleFinding {
+  severity: "high" | "warn" | "info";
+  ruleId: string;
+  ruleName: string;
+  reason: string;
+}
+
+/** Shipped rules carry type "Default" (editable) or "ReadOnly" (immutable,
+ *  e.g. RootAdmin) — verified live; only "Custom" is user-authored. */
+export function isShippedRule(type: unknown): boolean {
+  return type === "Default" || type === "ReadOnly";
+}
+
+/** Heuristic lint over QRS security rules. Findings are prompts for a human
+ *  review, not verdicts — a disabled default rule can be a deliberate
+ *  hardening choice. */
+export function lintSecurityRules(rules: Array<Record<string, any>>): SecurityRuleFinding[] {
+  const findings: SecurityRuleFinding[] = [];
+  const WRITE_MASK = 4 | 8 | 64 | 128; // Update, Delete, Change owner, Change role
+  for (const r of rules) {
+    const isDefault = isShippedRule(r.type);
+    const id = r.id ?? "?";
+    const name = r.name ?? "?";
+    const condition = String(r.rule ?? "").trim();
+    const filter = String(r.resourceFilter ?? "").trim();
+    if (isDefault && r.disabled) {
+      findings.push({ severity: "warn", ruleId: id, ruleName: name,
+        reason: "Default rule is disabled — the site deviates from the shipped security baseline" });
+    }
+    if (!isDefault && !r.disabled) {
+      if (filter === "*") {
+        findings.push({ severity: "high", ruleId: id, ruleName: name,
+          reason: "Custom rule applies to ALL resource types (resourceFilter '*')" });
+      }
+      const unconditional = condition === "" || /^\(*\s*true\s*\)*$/i.test(condition);
+      if (unconditional && (Number(r.actions) & WRITE_MASK) !== 0) {
+        findings.push({ severity: "high", ruleId: id, ruleName: name,
+          reason: `Unconditional custom rule grants write-level actions (${decodeRuleActions(Number(r.actions)).join(", ")})` });
+      }
+    }
+    if (!isDefault && r.disabled) {
+      findings.push({ severity: "info", ruleId: id, ruleName: name,
+        reason: "Disabled custom rule — dead configuration worth pruning" });
+    }
+  }
+  return findings;
+}
+
+/** Flatten the engine healthcheck payload into the numbers an operator asks
+ *  for first; the raw payload rides along untouched. */
+export function summarizeHealthcheck(h: Record<string, any>) {
+  const committed = Number(h.mem?.committed ?? 0);
+  const free = Number(h.mem?.free ?? 0);
+  return {
+    version: h.version,
+    started: h.started,
+    saturated: h.saturated === true,
+    memCommittedMB: committed,
+    memFreeMB: free,
+    cpuTotalPct: h.cpu?.total,
+    sessions: h.session,
+    apps: {
+      activeDocs: Array.isArray(h.apps?.active_docs) ? h.apps.active_docs.length : h.apps?.active_docs,
+      loadedDocs: Array.isArray(h.apps?.loaded_docs) ? h.apps.loaded_docs.length : h.apps?.loaded_docs,
+      inMemoryDocs: Array.isArray(h.apps?.in_memory_docs) ? h.apps.in_memory_docs.length : h.apps?.in_memory_docs,
+      calls: h.apps?.calls,
+      selections: h.apps?.selections,
+    },
+    users: h.users,
+    raw: h,
+  };
+}
+
 /** Build engine field-value duals for SelectValues. Numeric values (and
  *  numeric-looking strings) get qIsNumeric + qNumber — a text-only qText
  *  against a numeric field silently selects nothing or widens. */

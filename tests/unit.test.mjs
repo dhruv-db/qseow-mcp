@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   redactSecrets, paginate, walkStrings, classifyLineage, buildSelectValues,
+  tailText, decodeRuleActions, lintSecurityRules, summarizeHealthcheck,
 } from "../dist/tools/shared.js";
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
@@ -105,6 +106,69 @@ test("every shipped fixture walks cleanly and yields string leaves", () => {
     walkStrings(fixture(f), "", () => { leaves++; });
     assert.ok(leaves > 0, `${f} produced no string leaves`);
   }
+});
+
+// ── tailText ─────────────────────────────────────────────────────────────────
+
+test("tailText returns the last n lines and counts what it dropped", () => {
+  const log = Array.from({ length: 500 }, (_, i) => `line ${i + 1}`).join("\n") + "\n";
+  const t = tailText(log, 200);
+  assert.deepEqual([t.totalLines, t.dropped, t.lines.length], [500, 300, 200]);
+  assert.equal(t.lines[0], "line 301");
+  assert.equal(t.lines.at(-1), "line 500");
+  const short = tailText("a\r\nb", 10);
+  assert.deepEqual([short.totalLines, short.dropped, short.lines], [2, 0, ["a", "b"]]);
+  assert.deepEqual(tailText("", 10).totalLines, 0);
+});
+
+// ── decodeRuleActions / lintSecurityRules ────────────────────────────────────
+
+test("decodeRuleActions decodes composite masks", () => {
+  assert.deepEqual(decodeRuleActions(2), ["Read"]);
+  assert.deepEqual(decodeRuleActions(1 + 2 + 4 + 8), ["Create", "Read", "Update", "Delete"]);
+  assert.deepEqual(decodeRuleActions(64 | 128), ["Change owner", "Change role"]);
+  assert.deepEqual(decodeRuleActions(0), ["unknown(0)"]);
+});
+
+test("lintSecurityRules flags the risky shapes and only those", () => {
+  const rules = [
+    { id: "r0", name: "RootAdmin", type: "ReadOnly", disabled: false, resourceFilter: "*", actions: 4294967295, rule: "((user.roles=\"RootAdmin\"))" },
+    { id: "r1", name: "Owner", type: "Default", disabled: false, resourceFilter: "*", actions: 2, rule: "((Resource.owner = user))" },
+    { id: "r2", name: "DisabledDefault", type: "Default", disabled: true, resourceFilter: "App*", actions: 2, rule: "x" },
+    { id: "r3", name: "WildcardCustom", type: "Custom", disabled: false, resourceFilter: "*", actions: 2, rule: "user.name = \"x\"" },
+    { id: "r4", name: "GodRule", type: "Custom", disabled: false, resourceFilter: "App_*", actions: 4 | 8, rule: "true" },
+    { id: "r5", name: "DeadCustom", type: "Custom", disabled: true, resourceFilter: "App_*", actions: 2, rule: "x" },
+    { id: "r6", name: "FineCustom", type: "Custom", disabled: false, resourceFilter: "Stream_*", actions: 2, rule: "user.group = \"BI\"" },
+  ];
+  const f = lintSecurityRules(rules);
+  const byRule = Object.fromEntries(f.map((x) => [x.ruleId, x]));
+  assert.equal(f.length, 4);
+  assert.equal(byRule.r2.severity, "warn");   // disabled default
+  assert.equal(byRule.r3.severity, "high");   // wildcard custom
+  assert.equal(byRule.r4.severity, "high");   // unconditional write grant
+  assert.equal(byRule.r5.severity, "info");   // dead custom
+  assert.ok(!byRule.r0 && !byRule.r1 && !byRule.r6); // shipped ReadOnly/Default wildcards + scoped custom are fine
+});
+
+// ── summarizeHealthcheck ─────────────────────────────────────────────────────
+
+test("summarizeHealthcheck flattens the operator numbers, keeps raw", () => {
+  const h = {
+    version: "12.1877.6", started: "20260806T120000.000Z", saturated: false,
+    mem: { committed: 1024.5, allocated: 900, free: 14000 },
+    cpu: { total: 3 },
+    session: { active: 1, total: 2 },
+    apps: { active_docs: ["a"], loaded_docs: ["a", "b"], in_memory_docs: ["a", "b"], calls: 42, selections: 7 },
+    users: { active: 1, total: 1 },
+  };
+  const s = summarizeHealthcheck(h);
+  assert.equal(s.saturated, false);
+  assert.equal(s.memFreeMB, 14000);
+  assert.deepEqual([s.apps.activeDocs, s.apps.loadedDocs], [1, 2]);
+  assert.equal(s.raw.version, "12.1877.6");
+  // Some engine builds return counts, not arrays — both shapes must survive.
+  const s2 = summarizeHealthcheck({ apps: { active_docs: 3 } });
+  assert.equal(s2.apps.activeDocs, 3);
 });
 
 // ── deep mode: a real snapshot directory of recorded qProps ──────────────────

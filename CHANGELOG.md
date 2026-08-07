@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.4.0 — 2026-08-06
+
+**Tier 2: the ops layer** (ships with the `admin` group):
+
+- `get_reload_log` — last execution result of a reload task (status, timing,
+  detail timeline) plus the script-log tail via the QRS two-step download.
+- `engine_healthcheck` — engine version, saturated flag, memory/CPU, loaded
+  app counts, session/user counts (direct `:4747` in certificate mode, via
+  the virtual proxy in jwt mode).
+- `security_rule_audit` — every Security-category system rule with decoded
+  action bitmasks, plus lint findings: disabled default rules, custom rules
+  with a `*` resource filter, unconditional write-level grants. Findings are
+  review prompts, not verdicts.
+- `list_user_sessions` / `end_user_sessions` (QPS) — active proxy sessions per
+  user and force-logout. The Proxy Service REST API (`:4243`) is
+  certificate-only, so these register whenever certificate material is
+  configured (either auth mode) and are absent otherwise. `end_user_sessions`
+  is mutation-gated and flagged destructive.
+- Certificate material now loads opportunistically in jwt mode when
+  `QSEOW_CERT_PATH`/`QSEOW_CERT_KEY_PATH` are set (enables the QPS tools);
+  still required in certificate mode. New `QSEOW_QPS_PORT` (default 4243).
+
 ## 0.3.0 — 2026-08-06
 
 **Tier 1: the troubleshooting loop.** Eight inspector tools (ship with the

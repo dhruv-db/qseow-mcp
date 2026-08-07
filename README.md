@@ -4,7 +4,7 @@
 
 **The glue layer for a Qlik support agent.** Qlik Cloud ships a native MCP endpoint; the client-managed estate — where a large share of enterprise Qlik still runs — has nothing equivalent. This server exposes the on-prem API surface (Repository/QRS, Engine/QIX, Proxy) as [Model Context Protocol](https://modelcontextprotocol.io) tools, so an agent can do what a support engineer does when a number is wrong: walk KPI → object → sheet → app → script → source, evaluating definitions at every step — plus govern, query, and build against the site.
 
-> **Status: 0.3.0, pre-release.** All 35 tools exercised end-to-end against Qlik Sense **May 2026 (15.13.8)** on a single-node site, in BOTH certificate and JWT auth modes (including the full mutation lifecycle: copy → set_script → reload → publish → delete, and task start-to-finish). Tool names and shapes may still change.
+> **Status: 0.4.0, pre-release.** All 40 tools exercised end-to-end against Qlik Sense **May 2026 (15.13.8)** on a single-node site, in BOTH certificate and JWT auth modes (including the full mutation lifecycle: copy → set_script → reload → publish → delete, and task start-to-finish). Tool names and shapes may still change.
 
 ## Tools by persona
 
@@ -50,8 +50,12 @@ Expose only what a given deployment needs with `QSEOW_TOOL_GROUPS`.
 | `start_task` | Trigger a reload task |
 | `list_extensions` / `list_data_connections` | Extension and connection inventory |
 | `qrs_search` | Any QRS entity + filter expression — the governance power tool |
+| `get_reload_log` | Why did a reload fail? Last execution result + detail timeline + script-log tail |
+| `engine_healthcheck` | Engine version, saturated flag, memory/CPU, loaded apps, session counts |
+| `security_rule_audit` | Every security rule with decoded actions + lint findings (disabled defaults, wildcard filters, unconditional write grants) |
+| `list_user_sessions` / `end_user_sessions` | Active proxy sessions per user; force logout. Certificate-backed — see note below |
 
-Mutating tools (`set_script`, `reload_app`, `create_app`, `copy_app`, `publish_app`, `delete_app`, `start_task`) are **gated at registration**: unless `QSEOW_ALLOW_MUTATIONS=true`, they are never registered, so a read-only deployment advertises a genuinely read-only tool surface in `tools/list`. Default is read-only.
+Mutating tools (`set_script`, `reload_app`, `create_app`, `copy_app`, `publish_app`, `delete_app`, `start_task`, `end_user_sessions`) are **gated at registration**: unless `QSEOW_ALLOW_MUTATIONS=true`, they are never registered, so a read-only deployment advertises a genuinely read-only tool surface in `tools/list`. Default is read-only.
 
 Every tool carries MCP tool annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) so clients that honor them can apply their own policy — e.g. `reload_app`/`set_script`/`start_task` are flagged destructive; selection tools are non-destructive session-state mutations.
 
@@ -66,6 +70,8 @@ Two modes, both standard QSEoW patterns. Header-authentication virtual proxies a
 **`certificate`** — QMC-exported client certificates against QRS `:4242` and Engine `:4747`. The service-to-service path; full tool coverage. Export via QMC, or `POST /qrs/certificatedistribution/exportcertificates`.
 
 **`jwt`** — a signed, expiring token through a JWT virtual proxy on `:443`. Carries a real per-user identity, so it's the right mode when the agent should act as a person and inherit that person's section-access and security rules.
+
+**One platform exception:** the Proxy Service REST API (`:4243`, behind `list_user_sessions`/`end_user_sessions`) only speaks certificate auth — Qlik exposes no JWT route to it. Those two tools register whenever certificate material is configured (`QSEOW_CERT_PATH`/`QSEOW_CERT_KEY_PATH`), in **either** auth mode, and are absent from `tools/list` otherwise. Every other tool has identical coverage in both modes.
 
 ### JWT and the engine WebSocket (CSWSH)
 

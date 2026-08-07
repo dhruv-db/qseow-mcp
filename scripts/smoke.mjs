@@ -60,7 +60,7 @@ const step = async (label, fn) => {
 const tools = await client.listTools();
 log("tools registered", tools.tools.map((t) => t.name).join(", "));
 
-const MUTATING = ["set_script", "reload_app", "create_app", "copy_app", "publish_app", "delete_app", "start_task"];
+const MUTATING = ["set_script", "reload_app", "create_app", "copy_app", "publish_app", "delete_app", "start_task", "end_user_sessions"];
 
 await step("annotations present on every tool", () => {
   const missing = tools.tools.filter((t) => typeof t.annotations?.readOnlyHint !== "boolean");
@@ -290,10 +290,12 @@ if (copyId) {
 }
 
 // ---- start_task: needs the persistent fixture task (bound to the demo app).
+let fixtureTaskId;
 await step("start_task (fixture 'MCP Smoke Task')", async () => {
   const tasks = envelope(await call("list_tasks", { filter: `name eq 'MCP Smoke Task'` }));
   if (tasks.total === 0) throw new Error("fixture task missing — create 'MCP Smoke Task' bound to the demo app");
   const taskId = tasks.items[0].id;
+  fixtureTaskId = taskId;
   await call("start_task", { taskId });
   for (let i = 0; i < 24; i++) {
     await new Promise((r) => setTimeout(r, 5000));
@@ -303,6 +305,56 @@ await step("start_task (fixture 'MCP Smoke Task')", async () => {
   }
   throw new Error("task did not finish within 120s");
 });
+
+// ---- ops tools (Tier 2): reload forensics, engine health, rule audit, QPS
+if (fixtureTaskId) {
+  await step("get_reload_log returns status + script-log tail", async () => {
+    const r = JSON.parse(await call("get_reload_log", { taskId: fixtureTaskId, tailLines: 50 }));
+    if (r.status !== "FinishedSuccess") throw new Error(`status=${r.status}, want FinishedSuccess`);
+    if (!r.log || !Array.isArray(r.log.lines) || r.log.lines.length === 0) {
+      throw new Error(`no log lines: ${JSON.stringify(r).slice(0, 200)}`);
+    }
+    return `status=${r.status} logLines=${r.log.lines.length}/${r.log.totalLines} details=${r.details.length}`;
+  });
+}
+
+await step("engine_healthcheck", async () => {
+  const h = JSON.parse(await call("engine_healthcheck"));
+  if (typeof h.saturated !== "boolean") throw new Error(`saturated not boolean: ${JSON.stringify(h).slice(0, 200)}`);
+  if (!h.version) throw new Error("no engine version");
+  return `version=${h.version} saturated=${h.saturated} loadedDocs=${h.apps.loadedDocs} sessions=${JSON.stringify(h.sessions)}`;
+});
+
+await step("security_rule_audit", async () => {
+  const a = JSON.parse(await call("security_rule_audit", { limit: 5 }));
+  if (!(a.totalRules > 0) || !(a.shippedRules > 0)) throw new Error(`implausible counts: ${JSON.stringify(a).slice(0, 200)}`);
+  if (!Array.isArray(a.findings)) throw new Error("no findings array");
+  // Shipped wildcard rules (RootAdmin, resourceFilter '*', type ReadOnly)
+  // must NOT be flagged as risky custom rules.
+  const shippedFlagged = a.findings.some((f) => ["RootAdmin", "OwnerRead", "ServiceAccount"].includes(f.ruleName) && f.severity === "high");
+  if (shippedFlagged) throw new Error("shipped ReadOnly rule flagged as risky custom rule");
+  const decoded = a.rules.items.every((r) => Array.isArray(r.actions));
+  if (!decoded) throw new Error("actions not decoded");
+  return `rules=${a.totalRules} (shipped=${a.shippedRules} custom=${a.customRules} disabled=${a.disabledRules}) findings=${a.findings.length}`;
+});
+
+// QPS tools register only when certificate material is configured (the QPS
+// REST API is certificate-only) — skip cleanly when absent.
+const hasQps = tools.tools.some((t) => t.name === "list_user_sessions");
+if (hasQps) {
+  await step("list_user_sessions (nonexistent user -> 0 sessions)", async () => {
+    const r = JSON.parse(await call("list_user_sessions", { directory: "SMOKE", userId: "nobody" }));
+    if (typeof r.sessionCount !== "number") throw new Error(`bad shape: ${JSON.stringify(r).slice(0, 200)}`);
+    return `sessionCount=${r.sessionCount}`;
+  });
+  await step("end_user_sessions (nonexistent user -> 0 ended)", async () => {
+    const r = JSON.parse(await call("end_user_sessions", { directory: "SMOKE", userId: "nobody" }));
+    if (r.endedSessions !== 0) throw new Error(`expected 0 ended, got ${r.endedSessions}`);
+    return `endedSessions=${r.endedSessions}`;
+  });
+} else {
+  log("SKIP QPS session tools", "no certificate material configured (QPS REST is certificate-only)");
+}
 
 await client.close();
 console.log(failures === 0 ? "SMOKE: ALL PASS" : `SMOKE: ${failures} FAILURES`);

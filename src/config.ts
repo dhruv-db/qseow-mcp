@@ -8,6 +8,7 @@ export interface Config {
   qrsPort: number;
   enginePort: number;
   proxyPort: number;
+  qpsPort: number;
   authMode: AuthMode;
   vpPrefix: string;
   jwt?: string;
@@ -29,11 +30,17 @@ export function loadConfig(): Config {
     throw new Error(`QSEOW_AUTH_MODE must be "certificate" or "jwt", got "${authMode}"`);
   }
 
+  // Certificate material is REQUIRED in certificate mode, and loaded
+  // opportunistically in JWT mode when the paths are provided: the Proxy
+  // Service REST API (:4243) only speaks certificate auth, so the QPS session
+  // tools need certs regardless of how everything else authenticates.
   let cert: Config["cert"];
-  if (authMode === "certificate") {
-    const certPath = env("QSEOW_CERT_PATH");
-    const keyPath = env("QSEOW_CERT_KEY_PATH");
-    if (!certPath || !keyPath) throw new Error("certificate mode requires QSEOW_CERT_PATH and QSEOW_CERT_KEY_PATH");
+  const certPath = env("QSEOW_CERT_PATH");
+  const keyPath = env("QSEOW_CERT_KEY_PATH");
+  if (authMode === "certificate" && (!certPath || !keyPath)) {
+    throw new Error("certificate mode requires QSEOW_CERT_PATH and QSEOW_CERT_KEY_PATH");
+  }
+  if (certPath && keyPath) {
     cert = {
       cert: readFileSync(certPath),
       key: readFileSync(keyPath),
@@ -58,6 +65,7 @@ export function loadConfig(): Config {
     qrsPort: Number(env("QSEOW_QRS_PORT", "4242")),
     enginePort: Number(env("QSEOW_ENGINE_PORT", "4747")),
     proxyPort: Number(env("QSEOW_PROXY_PORT", "443")),
+    qpsPort: Number(env("QSEOW_QPS_PORT", "4243")),
     authMode,
     vpPrefix: env("QSEOW_VP_PREFIX", "jwt")!,
     jwt,

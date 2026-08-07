@@ -9,8 +9,9 @@ import { registerAdminTools } from "./tools/admin.js";
 import { registerAnalystTools } from "./tools/analyst.js";
 import { registerDeveloperTools } from "./tools/developer.js";
 import { registerInspectorTools } from "./tools/inspector.js";
+import { registerOpsTools } from "./tools/ops.js";
 
-const VERSION = "0.3.0";
+const VERSION = "0.4.0";
 
 async function main(): Promise<void> {
   const cfg = loadConfig();
@@ -22,7 +23,12 @@ async function main(): Promise<void> {
 
   // Mutating tools are gated at REGISTRATION: with mutations disabled they
   // are never added to the server, so tools/list is honestly read-only.
-  if (cfg.toolGroups.has("admin")) registerAdminTools(server, qrs, cfg);
+  if (cfg.toolGroups.has("admin")) {
+    registerAdminTools(server, qrs, cfg);
+    // Ops layer (Tier 2): reload forensics, engine health, security-rule
+    // audit, QPS sessions. Read-only except end_user_sessions (mutation-gated).
+    registerOpsTools(server, qrs, cfg, session);
+  }
   if (cfg.toolGroups.has("analyst")) {
     registerAnalystTools(server, engine);
     // The troubleshooting loop (sheets, objects, expression search, master
