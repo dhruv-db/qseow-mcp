@@ -76,9 +76,7 @@ Modern Sense visualizations are **nebula.js supernovas rendered by the client, n
 
 Because engine-side validation cannot prove pixels, two scripts close the loop: `scripts/viz_matrix.mjs` builds one of every supported type against a live site, and `scripts/render_proof.mjs` drives a real headless browser over the result at **sheet-tile sizes** and reports what actually drew.
 
-**Render-verified on Qlik Sense May 2026: kpi, barchart, linechart, combochart, piechart, scatterplot, treemap, table, pivot-table, listbox, text-image (11 of 12).**
-
-`gauge` is flagged `renderVerified: false` — it loads, evaluates, emits no console error, and draws nothing. `validate_sheet` warns on it rather than claiming it works.
+**All 12 supported types are render-verified on Qlik Sense May 2026**, at sheet-tile sizes, in a real browser client: kpi, gauge, barchart, linechart, combochart, piechart, scatterplot, treemap, table, pivot-table, listbox, text-image.
 
 ### Getting a chart's real property contract
 
@@ -88,9 +86,12 @@ When a supernova refuses to draw, do not reverse-engineer its properties from er
 node scripts/harvest_client_props.mjs treemap ./truth.json
 ```
 
-This scans every readable app for **client-authored** objects of that type and dumps their properties. Qlik's shipped monitoring apps (Content / Operations / License Monitor) are a good source. Mirroring a harvested treemap is exactly how treemap was fixed — the answer was `qMode: "K"` (tree mode, the same class of trap as pivot-table needing `"P"`) plus a far leaner property set than the generic builder was producing. Two rounds of guesswork had failed before that.
+This scans every readable app for **client-authored** objects of that type and dumps their properties. Qlik's shipped monitoring apps (Content / Operations / License Monitor) are a good source. This is how the last two broken types were fixed, each in a single pass after repeated guesswork had failed:
 
-To solve `gauge`, author one gauge in the Sense client and run the same script against it.
+- **treemap** needed `qMode: "K"` (tree mode — the same class of trap as pivot-table needing `"P"`) plus a far leaner property set than the generic builder produced. Harvested from Qlik's shipped Content Monitor app.
+- **gauge** needed `gaugetype`, `angle`, `autoOrientation`, `paletteProgressColor` and `segmentInfo` — properties no error message ever named, because gauge fails silently. Harvested from a gauge authored in the Sense client for the purpose.
+
+If a chart you build renders blank or errors, author one in the client, harvest it, and mirror it. That loop is minutes; reverse-engineering from crash messages is hours and does not terminate when the chart fails quietly.
 
 Three methodology notes worth stealing if you build something similar:
 

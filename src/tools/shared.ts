@@ -105,15 +105,11 @@ export interface VizSpec {
 
 export const VIZ_SPECS: Record<string, VizSpec> = {
   kpi:          { minDims: 0, maxDims: 0, minMeasures: 1, maxMeasures: 2, cube: "hypercube" },
-  // gauge: still unsolved. Tried the full nebula property block, a lean
-  // client-shaped set, and per-property fixes — it loads, evaluates, emits NO
-  // console error, and draws nothing (or a stray needle fragment). No
-  // client-authored gauge exists on the test site to harvest, and headless
-  // click-to-add in the hub did not create one. The fix is known but needs
-  // input: author one gauge in the Sense client, then run
-  // scripts/harvest_client_props.mjs and mirror it (that is exactly how
-  // treemap was solved). Flagged rather than shipped broken.
-  gauge:        { minDims: 0, maxDims: 0, minMeasures: 1, maxMeasures: 1, cube: "hypercube", renderVerified: false },
+  // gauge: needs `gaugetype`, `angle`, `autoOrientation`,
+  // `paletteProgressColor` and `segmentInfo` — none of which any error
+  // message named. Solved by harvesting a client-authored gauge; see
+  // scripts/harvest_client_props.mjs.
+  gauge:        { minDims: 0, maxDims: 0, minMeasures: 1, maxMeasures: 1, cube: "hypercube" },
   barchart:     { minDims: 1, maxDims: 2, minMeasures: 1, maxMeasures: 9, cube: "hypercube" },
   linechart:    { minDims: 1, maxDims: 2, minMeasures: 1, maxMeasures: 9, cube: "hypercube" },
   combochart:   { minDims: 1, maxDims: 1, minMeasures: 1, maxMeasures: 9, cube: "hypercube" },

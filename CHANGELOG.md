@@ -37,16 +37,19 @@
   identified from each chart's exact browser TypeError: `showAsDonut` for
   pie, `settings.labels` for treemap, axis-specific `refLinesX/Y` for
   scatter, enumerated `columnOrder` for table). `validate_sheet` flags
-  objects missing them. **11 of 12 types are render-verified against a real
-  browser client at sheet-tile sizes**; `gauge` alone is flagged
-  `renderVerified: false` (loads, evaluates, no console error, draws nothing)
-  and warned on rather than shipped broken.
+  objects missing them. **All 12 supported types are render-verified against a
+  real browser client at sheet-tile sizes.**
 - **treemap fixed** by mirroring a client-authored treemap harvested from
   Qlik's shipped Content Monitor app: the cube must be `qMode: "K"` (tree
   mode — "S" renders Qlik's error state, the same trap as pivot needing "P"),
   and the shared property block had to be replaced by a lean, client-shaped
   set. Guessing from error messages had failed twice; harvesting worked in
   one pass.
+- **gauge fixed** the same way: it needed `gaugetype: "radial"`, `angle`,
+  `autoOrientation`, `paletteProgressColor` and `segmentInfo` (earlier
+  attempts had invented a `segments` key). Gauge fails SILENTLY — no console
+  error — so there was nothing to reverse-engineer from; harvesting a
+  client-authored gauge answered it in one pass.
 - `scripts/harvest_client_props.mjs`: finds client-authored objects of a given
   type and dumps their properties — the reusable way to get a supernova's real
   property contract instead of reconstructing it from crashes.

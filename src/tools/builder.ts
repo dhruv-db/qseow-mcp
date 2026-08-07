@@ -184,23 +184,45 @@ export function buildVizProps(
     };
   }
   if (viz === "gauge") {
-    // Lean on purpose. The shared nebula block (axes, barGrouping, totals,
-    // scrollbar...) is what kept sn-gauge from drawing — the same lesson the
-    // client-authored treemap taught: give a supernova only the properties
-    // it owns.
+    // Mirrored from a CLIENT-AUTHORED gauge (created in the Sense client for
+    // exactly this purpose, then harvested). Guessing had failed three times
+    // because the missing properties are ones no error message ever named:
+    // `gaugetype` ("radial"), `angle`, `autoOrientation`, `paletteProgressColor`,
+    // and `segmentInfo` — which earlier attempts had invented as `segments`.
     return {
       ...base,
-      showTitles: true, subtitle: "", footnote: "", showDetails: false,
+      showTitles: true, subtitle: "", footnote: "", showDetails: true,
+      showDetailsExpression: false, disableNavMenu: false, disclaimerClosed: true,
+      gaugetype: "radial",
+      angle: 0.7,
+      autoOrientation: true,
+      orientation: "horizontal",
       useSegments: false,
-      segments: { segments: [] },
-      measureAxis: { show: "labels", spacing: 1, min: 0, max: 1000, autoMinMax: true },
+      segmentInfo: { limits: [], paletteColors: [{ index: 6 }] },
+      paletteProgressColor: { index: 6 },
+      color: { useBaseColors: "measure" },
+      measureAxis: { min: 0, max: 100, show: "all", spacing: 1 },
+      refLine: { refLines: [] },
+      components: [],
+      filter: null,
       qHyperCubeDef: {
         qDimensions: [],
         qMeasures: measures.map((m, i) => ({
-          qDef: { qDef: m.startsWith("=") ? m.slice(1) : m, qLabel: "", qNumFormat: { qType: "U" }, cId: `m${i + 1}`, numFormatFromTemplate: true },
-          qAttributeExpressions: [], qAttributeDimensions: [],
+          // client stores the expression WITHOUT a leading "="
+          qDef: {
+            qTags: [], qGrouping: "N", qDef: m.startsWith("=") ? m.slice(1) : m,
+            qNumFormat: { qType: "U", qnDec: 10, qUseThou: 0 }, qAccumulate: 0,
+            qActiveExpression: 0, qExpressions: [], autoSort: true,
+            cId: `m${i + 1}`, numFormatFromTemplate: true,
+          },
+          qSortBy: { qSortByNumeric: -1, qSortByLoadOrder: 1 },
+          qAttributeExpressions: [], qAttributeDimensions: [], qTrendLines: [],
         })),
+        qInterColumnSortOrder: [0],
+        qSuppressMissing: true,
         qInitialDataFetch: [{ qLeft: 0, qTop: 0, qWidth: 1, qHeight: 1 }],
+        qReductionMode: "N", qMode: "S", qPseudoDimPos: -1, qNoOfLeftDims: -1,
+        qMaxStackedCells: 5000, qColumnOrder: [],
       },
     };
   }
