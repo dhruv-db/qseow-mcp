@@ -117,6 +117,11 @@ export class EngineClient {
 
   /** Dedicated session per app; doc cached so selections persist. */
   async app(appId: string): Promise<any> {
+    // appId lands in the WebSocket URL path — defense-in-depth beyond the
+    // tool schemas: only repository GUIDs pass.
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(appId)) {
+      throw new Error(`appId must be a GUID, got: ${appId.slice(0, 60)}`);
+    }
     const existing = this.appCached.get(appId);
     if (existing) {
       try {

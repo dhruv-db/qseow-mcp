@@ -50,5 +50,10 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/rmterenzi/qseow-mcp.git"
+  },
+  "author": "Terenzi LLC",
+  "homepage": "https://github.com/rmterenzi/qseow-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/rmterenzi/qseow-mcp/issues"
   }
 }

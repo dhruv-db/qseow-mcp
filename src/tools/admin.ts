@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { QrsClient } from "../qrs.js";
 import type { Config } from "../config.js";
-import { text, redactSecrets, pageParams, paginate } from "./shared.js";
+import { text, redactSecrets, pageParams, paginate, guid } from "./shared.js";
 
 const TASK_STATUS: Record<number, string> = {
   0: "NeverStarted", 1: "Triggered", 2: "Started", 3: "Queued", 4: "AbortInitiated",
@@ -128,7 +128,7 @@ export function registerAdminTools(server: McpServer, qrs: QrsClient, cfg: Confi
       "start_task",
       {
         description: "Start a reload task by id (fire-and-forget; poll list_tasks for status). MUTATION: the task's reload replaces app data.",
-        inputSchema: { taskId: z.string().describe("Reload task id") },
+        inputSchema: { taskId: guid.describe("Reload task id") },
         annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
       },
       async ({ taskId }) => {

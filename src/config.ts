@@ -1,4 +1,29 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
+
+/** Minimal .env loader (no dependency): KEY=VALUE lines, # comments, optional
+ *  surrounding quotes. Values never override variables already set in the
+ *  environment — the MCP client's explicit env wins. Reads QSEOW_ENV_PATH if
+ *  set, else ./.env if present, else nothing. */
+function loadEnvFile(): void {
+  const path = process.env.QSEOW_ENV_PATH ?? (existsSync(".env") ? ".env" : undefined);
+  if (!path) return;
+  let raw: string;
+  try {
+    raw = readFileSync(path, "utf8");
+  } catch {
+    if (process.env.QSEOW_ENV_PATH) throw new Error(`QSEOW_ENV_PATH is set but unreadable: ${path}`);
+    return;
+  }
+  for (const line of raw.split(/\r?\n/)) {
+    const m = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/.exec(line);
+    if (!m || line.trim().startsWith("#")) continue;
+    let value = m[2];
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    if (process.env[m[1]] === undefined) process.env[m[1]] = value;
+  }
+}
 
 export type AuthMode = "certificate" | "jwt";
 export type ToolGroup = "analyst" | "developer" | "admin";
@@ -25,6 +50,7 @@ function env(name: string, fallback?: string): string | undefined {
 }
 
 export function loadConfig(): Config {
+  loadEnvFile();
   const authMode = (env("QSEOW_AUTH_MODE", "certificate") as AuthMode);
   if (authMode !== "certificate" && authMode !== "jwt") {
     throw new Error(`QSEOW_AUTH_MODE must be "certificate" or "jwt", got "${authMode}"`);

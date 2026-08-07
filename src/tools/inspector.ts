@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { EngineClient } from "../engine.js";
-import { text, pageParams, paginate, walkStrings, classifyLineage } from "./shared.js";
+import { text, pageParams, paginate, walkStrings, classifyLineage, scrubString, redactSecrets, guid } from "./shared.js";
 
 // The troubleshooting loop: KPI -> object -> sheet -> app -> script -> source.
 // Everything here is read-only introspection of a single app's definition
@@ -49,7 +49,7 @@ export function registerInspectorTools(server: McpServer, engine: EngineClient):
     "list_sheets",
     {
       description: "List an app's sheets with id, title, and published state. The entry point for walking an app's UI layer.",
-      inputSchema: { appId: z.string().describe("App id (GUID)") },
+      inputSchema: { appId: guid.describe("App id (GUID)") },
       annotations: READ,
     },
     async ({ appId }) => {
@@ -63,7 +63,7 @@ export function registerInspectorTools(server: McpServer, engine: EngineClient):
     {
       description: "List the visualization objects on a sheet: id, type, visualization, and title. The sheet -> object step of a KPI trace.",
       inputSchema: {
-        appId: z.string().describe("App id (GUID)"),
+        appId: guid.describe("App id (GUID)"),
         sheetId: z.string().describe("Sheet id (from list_sheets)"),
       },
       annotations: READ,
@@ -94,7 +94,7 @@ export function registerInspectorTools(server: McpServer, engine: EngineClient):
     {
       description: "Full property tree (qProps) of any object — the definition layer: measures, dimensions, expressions, extension config. The object -> definition step of a KPI trace.",
       inputSchema: {
-        appId: z.string().describe("App id (GUID)"),
+        appId: guid.describe("App id (GUID)"),
         objectId: z.string().describe("Object id (from get_sheet_objects or search_expressions)"),
       },
       annotations: READ,
@@ -102,7 +102,8 @@ export function registerInspectorTools(server: McpServer, engine: EngineClient):
     async ({ appId, objectId }) => {
       const app = await engine.app(appId);
       const obj = await app.getObject(objectId);
-      return text(await obj.getProperties());
+      // Extension objects can embed connection strings in their config.
+      return text(redactSecrets(await obj.getProperties()));
     },
   );
 
@@ -111,7 +112,7 @@ export function registerInspectorTools(server: McpServer, engine: EngineClient):
     {
       description: "Find where an expression fragment, field, or KPI term is used across an ENTIRE app: every object's properties (with owning sheet), master measures/dimensions, variables, and the load script. The 'where does this number come from' tool. NOTE: on a PUBLISHED app the engine hides the load script from user identities, so script matches only appear for unpublished apps you own — copy_app the target and search the copy to include script hits.",
       inputSchema: {
-        appId: z.string().describe("App id (GUID)"),
+        appId: guid.describe("App id (GUID)"),
         term: z.string().min(2).describe("Search term, e.g. a field name, measure label, or expression fragment"),
         caseSensitive: z.boolean().optional().describe("Default false"),
         maxMatches: z.number().int().positive().max(500).optional().describe("Cap on returned matches (default 100)"),
@@ -129,7 +130,9 @@ export function registerInspectorTools(server: McpServer, engine: EngineClient):
         const hay = caseSensitive ? s : s.toLowerCase();
         const i = hay.indexOf(needle);
         const start = Math.max(0, i - 60);
-        return (start > 0 ? "…" : "") + s.slice(start, i + term.length + 60) + (i + term.length + 60 < s.length ? "…" : "");
+        // Snippets are an egress path: a hit inside a connection string or a
+        // credential-bearing script line must not carry the secret out.
+        return scrubString((start > 0 ? "…" : "") + s.slice(start, i + term.length + 60) + (i + term.length + 60 < s.length ? "…" : ""));
       };
       const hit = (where: Record<string, unknown>, path: string, s: string) => {
         if (matches.length >= cap) { truncated = true; return; }
@@ -192,7 +195,7 @@ export function registerInspectorTools(server: McpServer, engine: EngineClient):
         if (matches.length >= cap) { truncated = true; return; }
         const hay = caseSensitive ? line : line.toLowerCase();
         if (hay.includes(needle)) {
-          matches.push({ kind: "script", line: i + 1, snippet: line.trim().slice(0, 240) });
+          matches.push({ kind: "script", line: i + 1, snippet: scrubString(line.trim().slice(0, 240)) });
         }
       });
 
@@ -204,7 +207,7 @@ export function registerInspectorTools(server: McpServer, engine: EngineClient):
     "list_master_measures",
     {
       description: "List the app's master measures: id, title, label, expression. Paged.",
-      inputSchema: { appId: z.string().describe("App id (GUID)"), ...pageParams },
+      inputSchema: { appId: guid.describe("App id (GUID)"), ...pageParams },
       annotations: READ,
     },
     async ({ appId, offset, limit }) => {
@@ -233,7 +236,7 @@ export function registerInspectorTools(server: McpServer, engine: EngineClient):
     "list_master_dimensions",
     {
       description: "List the app's master dimensions: id, title, field definitions. Paged.",
-      inputSchema: { appId: z.string().describe("App id (GUID)"), ...pageParams },
+      inputSchema: { appId: guid.describe("App id (GUID)"), ...pageParams },
       annotations: READ,
     },
     async ({ appId, offset, limit }) => {
@@ -263,7 +266,7 @@ export function registerInspectorTools(server: McpServer, engine: EngineClient):
     {
       description: "Evaluate a master measure by id or title in the current selection state. Fetches the measure's expression and evaluates it — the KPI -> value step of a trace. (Referencing a master measure as [Name] in a raw expression resolves to a FIELD, not the measure — this tool exists so you never hit that trap.)",
       inputSchema: {
-        appId: z.string().describe("App id (GUID)"),
+        appId: guid.describe("App id (GUID)"),
         measureId: z.string().optional().describe("Master measure id"),
         title: z.string().optional().describe("Master measure title (used when measureId is omitted)"),
       },
@@ -307,7 +310,7 @@ export function registerInspectorTools(server: McpServer, engine: EngineClient):
     "get_app_lineage",
     {
       description: "Data lineage of an app's load script as the engine sees it: every LOAD/STORE source and target (files, QVDs, databases, resident, inline, binary). The app -> source step of a trace. NOTE: on a PUBLISHED app the engine denies lineage to user identities (certificate/internal identities bypass this) — copy_app the target and read the copy's lineage.",
-      inputSchema: { appId: z.string().describe("App id (GUID)") },
+      inputSchema: { appId: guid.describe("App id (GUID)") },
       annotations: READ,
     },
     async ({ appId }) => {

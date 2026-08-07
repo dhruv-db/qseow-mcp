@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { EngineClient } from "../engine.js";
-import { text, pageParams, paginate, buildSelectValues } from "./shared.js";
+import { text, pageParams, paginate, buildSelectValues, guid } from "./shared.js";
 
 // Engine tools operate on a closed domain (the Qlik site). Selections mutate
 // only session state — no persisted data changes — so selection tools carry
@@ -30,7 +30,7 @@ export function registerAnalystTools(server: McpServer, engine: EngineClient): v
     "get_app_data_model",
     {
       description: "Tables and fields of an app's data model — the map an analyst needs before querying.",
-      inputSchema: { appId: z.string().describe("App id (GUID)") },
+      inputSchema: { appId: guid.describe("App id (GUID)") },
       annotations: READ,
     },
     async ({ appId }) => {
@@ -56,7 +56,7 @@ export function registerAnalystTools(server: McpServer, engine: EngineClient): v
     {
       description: "Evaluate a Qlik expression against an app in the current selection state, e.g. \"Sum(Sales)\" or \"Count(distinct Customer)\".",
       inputSchema: {
-        appId: z.string().describe("App id (GUID)"),
+        appId: guid.describe("App id (GUID)"),
         expression: z.string().describe("Qlik expression without leading ="),
       },
       annotations: READ,
@@ -73,7 +73,7 @@ export function registerAnalystTools(server: McpServer, engine: EngineClient): v
     {
       description: "Build a hypercube (group-by query) over an app: dimensions + measure expressions, returns tabular data honoring current selections. The core analyst query tool.",
       inputSchema: {
-        appId: z.string().describe("App id (GUID)"),
+        appId: guid.describe("App id (GUID)"),
         dimensions: z.array(z.string()).describe("Field names or dimension expressions"),
         measures: z.array(z.string()).describe("Measure expressions, e.g. 'Sum(Sales)'"),
         maxRows: z.number().int().positive().max(10000).optional().describe("Row limit (default 200)"),
@@ -89,7 +89,7 @@ export function registerAnalystTools(server: McpServer, engine: EngineClient): v
         qInfo: { qType: "mcp-hypercube" },
         qHyperCubeDef: {
           qDimensions: dimensions.map((d) => ({
-            qDef: { qFieldDefs: [d.startsWith("=") ? d : d] },
+            qDef: { qFieldDefs: [d] },
             qNullSuppression: false,
           })),
           qMeasures: measures.map((m) => ({ qDef: { qDef: m.startsWith("=") ? m : `=${m}` } })),
@@ -127,7 +127,7 @@ export function registerAnalystTools(server: McpServer, engine: EngineClient): v
     {
       description: "List distinct values of a field with selection state (S=selected, O=optional, X=excluded). Optional search term.",
       inputSchema: {
-        appId: z.string().describe("App id (GUID)"),
+        appId: guid.describe("App id (GUID)"),
         field: z.string().describe("Field name"),
         maxValues: z.number().int().positive().max(1000).optional().describe("Limit (default 100)"),
         searchTerm: z.string().optional().describe("Search within values"),
@@ -166,7 +166,7 @@ export function registerAnalystTools(server: McpServer, engine: EngineClient): v
     {
       description: "Select values in a field (session-scoped; affects subsequent hypercubes/expressions in this MCP session). Numeric values are matched numerically — pass numbers as numbers (or numeric strings; both work). Returns the resulting selected count so a silently-widened or missed selection is visible.",
       inputSchema: {
-        appId: z.string().describe("App id (GUID)"),
+        appId: guid.describe("App id (GUID)"),
         field: z.string().describe("Field name"),
         values: z.array(z.union([z.string(), z.number()])).describe("Values to select"),
         toggle: z.boolean().optional().describe("Toggle instead of replace (default false)"),
@@ -223,7 +223,7 @@ export function registerAnalystTools(server: McpServer, engine: EngineClient): v
     "get_current_selections",
     {
       description: "Current selection state across all fields in the session.",
-      inputSchema: { appId: z.string().describe("App id (GUID)") },
+      inputSchema: { appId: guid.describe("App id (GUID)") },
       annotations: READ,
     },
     async ({ appId }) => {
@@ -248,7 +248,7 @@ export function registerAnalystTools(server: McpServer, engine: EngineClient): v
     {
       description: "Clear selections in one field or all fields.",
       inputSchema: {
-        appId: z.string().describe("App id (GUID)"),
+        appId: guid.describe("App id (GUID)"),
         field: z.string().optional().describe("Field to clear; omit to clear all"),
       },
       annotations: SESSION_MUT,

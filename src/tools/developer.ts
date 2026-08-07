@@ -3,7 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { EngineClient } from "../engine.js";
 import type { QrsClient } from "../qrs.js";
 import type { Config } from "../config.js";
-import { text } from "./shared.js";
+import { text, scrubString, REDACTED, guid, qrsQuote } from "./shared.js";
 
 const READ = { readOnlyHint: true, openWorldHint: false };
 
@@ -11,13 +11,17 @@ export function registerDeveloperTools(server: McpServer, engine: EngineClient, 
   server.registerTool(
     "get_script",
     {
-      description: "Get an app's load script.",
-      inputSchema: { appId: z.string().describe("App id (GUID)") },
+      description: "Get an app's load script. Embedded credentials (inline connection strings, secret-bearing variables) are redacted — scripts with masked values cannot be round-tripped through set_script.",
+      inputSchema: { appId: guid.describe("App id (GUID)") },
       annotations: READ,
     },
     async ({ appId }) => {
       const app = await engine.app(appId);
-      return text(await app.getScript());
+      // Load scripts are a credential egress path too: CUSTOM CONNECT
+      // strings, LET vPassword = '...'. Same posture as QRS redaction.
+      const raw: string = await app.getScript();
+      const clean = scrubString(raw);
+      return text(clean === raw ? clean : `// NOTE: credential-bearing values were redacted from this script.\n${clean}`);
     },
   );
 
@@ -25,7 +29,7 @@ export function registerDeveloperTools(server: McpServer, engine: EngineClient, 
     "check_script",
     {
       description: "Syntax-check an app's current load script. Returns [] when clean.",
-      inputSchema: { appId: z.string().describe("App id (GUID)") },
+      inputSchema: { appId: guid.describe("App id (GUID)") },
       annotations: READ,
     },
     async ({ appId }) => {
@@ -44,12 +48,22 @@ export function registerDeveloperTools(server: McpServer, engine: EngineClient, 
     {
       description: "Replace an app's load script and save. MUTATION: overwrites the existing script.",
       inputSchema: {
-        appId: z.string().describe("App id (GUID)"),
+        appId: guid.describe("App id (GUID)"),
         script: z.string().describe("Complete load script"),
       },
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     },
     async ({ appId, script }) => {
+      // A get_script -> edit -> set_script round trip of a script whose
+      // credentials were redacted would silently overwrite the real values
+      // with the mask. Refuse rather than corrupt; secrets belong in data
+      // connections, not scripts.
+      if (script.includes(REDACTED)) {
+        throw new Error(
+          `Refusing to write a script containing the redaction marker ${REDACTED}. ` +
+          "Restore the original credential-bearing lines (or move the credentials into a data connection) and retry.",
+        );
+      }
       const app = await engine.app(appId);
       await app.setScript(script);
       await app.doSave();
@@ -62,7 +76,7 @@ export function registerDeveloperTools(server: McpServer, engine: EngineClient, 
     {
       description: "Reload an app in the engine session and save. Returns success flag and the tail of the reload progress log. MUTATION: replaces the app's data.",
       inputSchema: {
-        appId: z.string().describe("App id (GUID)"),
+        appId: guid.describe("App id (GUID)"),
         partial: z.boolean().optional().describe("Partial reload (default false)"),
       },
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
@@ -77,7 +91,7 @@ export function registerDeveloperTools(server: McpServer, engine: EngineClient, 
         progress = (p.qPersistentProgressMessages ?? []).map((m: any) => m.qMessageParameters?.join(" ") ?? "").join("\n");
       } catch { /* progress unavailable */ }
       if (ok) await app.doSave();
-      return text({ appId, reloadSuccess: ok, saved: ok, progressTail: progress.slice(-2000) });
+      return text({ appId, reloadSuccess: ok, saved: ok, progressTail: scrubString(progress.slice(-2000)) });
     },
   );
 
@@ -113,7 +127,7 @@ export function registerDeveloperTools(server: McpServer, engine: EngineClient, 
     {
       description: "Copy an app in the repository under a new name. MUTATION (additive).",
       inputSchema: {
-        appId: z.string().describe("Source app id (GUID)"),
+        appId: guid.describe("Source app id (GUID)"),
         name: z.string().describe("Name for the copy"),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
@@ -128,7 +142,7 @@ export function registerDeveloperTools(server: McpServer, engine: EngineClient, 
     "delete_app",
     {
       description: "Delete an app from the repository by id. MUTATION: irreversible — the app and its data are removed.",
-      inputSchema: { appId: z.string().describe("App id (GUID)") },
+      inputSchema: { appId: guid.describe("App id (GUID)") },
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     },
     async ({ appId }) => {
@@ -142,13 +156,13 @@ export function registerDeveloperTools(server: McpServer, engine: EngineClient, 
     {
       description: "Publish an app to a stream by stream name. MUTATION: changes app visibility site-wide.",
       inputSchema: {
-        appId: z.string().describe("App id (GUID)"),
+        appId: guid.describe("App id (GUID)"),
         streamName: z.string().describe("Target stream name"),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async ({ appId, streamName }) => {
-      const streams = await qrs.get<any[]>(`/qrs/stream/full?filter=${encodeURIComponent(`name eq '${streamName}'`)}`);
+      const streams = await qrs.get<any[]>(`/qrs/stream/full?filter=${encodeURIComponent(`name eq '${qrsQuote(streamName)}'`)}`);
       if (streams.length === 0) throw new Error(`Stream not found: ${streamName}`);
       const pub = await qrs.put<any>(`/qrs/app/${appId}/publish?stream=${streams[0].id}`);
       return text({ appId: pub.id, name: pub.name, stream: pub.stream?.name, published: pub.published });

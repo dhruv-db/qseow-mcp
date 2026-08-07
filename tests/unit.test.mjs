@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 import {
   redactSecrets, paginate, walkStrings, classifyLineage, buildSelectValues,
   tailText, decodeRuleActions, lintSecurityRules, summarizeHealthcheck,
+  scrubString, qrsQuote, REDACTED,
 } from "../dist/tools/shared.js";
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), "fixtures");
@@ -42,6 +43,29 @@ test("redactSecrets handles arrays and non-objects", () => {
   assert.equal(arr[1], "pwd=***REDACTED***;");
   assert.equal(arr[2], 42);
   assert.equal(arr[3], null);
+});
+
+// ── scrubString: free-text egress (scripts, logs, snippets) ──────────────────
+
+test("scrubString masks quoted and bare values, prefixed key names", () => {
+  // Load-script shapes: SET/LET with quoted values, prefixed variable names.
+  assert.equal(scrubString("SET vPassword = 'hunter2';"), `SET vPassword = ${REDACTED};`);
+  assert.equal(scrubString('LET vApiKey = "abc-123";'), `LET vApiKey = ${REDACTED};`);
+  assert.equal(scrubString("CUSTOM CONNECT TO \"provider=X;pwd=topsecret;host=y\";"),
+    `CUSTOM CONNECT TO \"provider=X;pwd=${REDACTED};host=y\";`);
+  // Reload-log echo of a script line.
+  assert.equal(scrubString("0007 LET vClient_Secret = 'shh'"), `0007 LET vClient_Secret = ${REDACTED}`);
+  // Non-secrets survive untouched.
+  const clean = "LOAD OrderId, Region FROM [lib://X/y.qvd] (qvd);";
+  assert.equal(scrubString(clean), clean);
+});
+
+// ── qrsQuote: filter-value escaping ──────────────────────────────────────────
+
+test("qrsQuote escapes quotes and backslashes for QRS filters", () => {
+  assert.equal(qrsQuote("Everyone"), "Everyone");
+  assert.equal(qrsQuote("O'Brien's Stream"), "O\\'Brien\\'s Stream");
+  assert.equal(qrsQuote("back\\slash"), "back\\\\slash");
 });
 
 // ── paginate ─────────────────────────────────────────────────────────────────

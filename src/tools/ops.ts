@@ -7,7 +7,7 @@ import type { Config } from "../config.js";
 import type { ProxySession } from "../session.js";
 import {
   text, tailText, decodeRuleActions, lintSecurityRules, isShippedRule,
-  summarizeHealthcheck, pageParams, paginate,
+  summarizeHealthcheck, pageParams, paginate, scrubString, guid,
 } from "./shared.js";
 
 const READ = { readOnlyHint: true, openWorldHint: false };
@@ -22,8 +22,25 @@ const NIL_GUID = "00000000-0000-0000-0000-000000000000";
 
 /** Raw HTTPS request outside the QRS client's routing: the engine healthcheck
  *  and the Proxy Service (QPS) REST API live on their own ports. QPS is
- *  certificate-only; the healthcheck follows the configured auth mode. */
-function rawRequest(
+ *  certificate-only; the healthcheck follows the configured auth mode.
+ *  Socket-level failures retry once on a fresh connection (same rationale as
+ *  QrsClient). */
+async function rawRequest(
+  cfg: Config,
+  opts: { port: number; path: string; method?: string; useCert?: boolean; cookie?: string },
+): Promise<{ status: number; body: string }> {
+  try {
+    return await rawAttempt(cfg, opts);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/socket hang up|ECONNRESET|EPIPE|socket closed/i.test(msg)) {
+      return await rawAttempt(cfg, opts);
+    }
+    throw e;
+  }
+}
+
+function rawAttempt(
   cfg: Config,
   opts: {
     port: number;
@@ -78,7 +95,7 @@ export function registerOpsTools(
         "Why did a reload fail? Last execution result of a reload task (status, timing, execution detail timeline) " +
         "plus the tail of the reload script log. The first tool to reach for on FinishedFail.",
       inputSchema: {
-        taskId: z.string().describe("Reload task id (see list_tasks)"),
+        taskId: guid.describe("Reload task id (see list_tasks)"),
         tailLines: z.number().int().positive().max(2000).optional()
           .describe("Script-log lines to return from the end (default 200)"),
       },
@@ -100,7 +117,7 @@ export function registerOpsTools(
         executingNode: er.executingNodeName,
         // The detail timeline (queued -> started -> finished/error messages)
         // often names the failure even when the script log is unavailable.
-        details: (er.details ?? []).map((d: any) => ({ at: d.detailCreatedDate, type: d.detailsType, message: d.message })),
+        details: (er.details ?? []).map((d: any) => ({ at: d.detailCreatedDate, type: d.detailsType, message: scrubString(String(d.message ?? "")) })),
       };
       const fileRef: string | undefined = er.fileReferenceID;
       if (!fileRef || fileRef === NIL_GUID) {
@@ -112,7 +129,8 @@ export function registerOpsTools(
       if (!tempGuid) return text({ ...summary, log: null, note: `scriptlog staging returned no GUID: ${JSON.stringify(staged).slice(0, 200)}` });
       const logText = await qrs.get<string>(`/qrs/download/reloadtask/${tempGuid}/scriptlog.txt`);
       const tail = tailText(typeof logText === "string" ? logText : JSON.stringify(logText), tailLines ?? 200);
-      return text({ ...summary, log: { totalLines: tail.totalLines, droppedLeadingLines: tail.dropped, lines: tail.lines } });
+      // Reload logs echo script statements — a credential egress path.
+      return text({ ...summary, log: { totalLines: tail.totalLines, droppedLeadingLines: tail.dropped, lines: tail.lines.map(scrubString) } });
     },
   );
 

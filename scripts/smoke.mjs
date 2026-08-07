@@ -276,6 +276,33 @@ if (copyId) {
     if (!r.some((l) => l.kind === "inline")) throw new Error(`no inline lineage: ${JSON.stringify(r).slice(0, 200)}`);
     return r.map((l) => l.kind).join(",");
   });
+  await step("get_script redacts embedded credentials", async () => {
+    // Regression for the script-egress gap: scripts are a credential egress
+    // path just like QRS connection strings.
+    await call("set_script", { appId: copyId, script: `SET vPassword = 'hunter2';\n${COPY_SCRIPT}` });
+    const script = await call("get_script", { appId: copyId });
+    if (script.includes("hunter2")) throw new Error("secret leaked through get_script");
+    if (!script.includes("***REDACTED***")) throw new Error("redaction marker missing");
+    return "secret masked";
+  });
+  await step("set_script refuses the redaction marker (round-trip guard)", async () => {
+    try {
+      await call("set_script", { appId: copyId, script: "SET vPassword = ***REDACTED***;" });
+      throw new Error("set_script accepted a redacted script");
+    } catch (e) {
+      if (!/redaction marker/i.test(e.message)) throw e;
+      return "refused as designed";
+    }
+  });
+  await step("GUID gate rejects non-GUID appId", async () => {
+    try {
+      await call("evaluate_expression", { appId: "../qrs/about", expression: "1" });
+      throw new Error("non-GUID appId was accepted");
+    } catch (e) {
+      if (!/GUID/i.test(e.message)) throw e;
+      return "rejected as designed";
+    }
+  });
   await step("publish_app copy to Everyone", async () => {
     const r = JSON.parse(await call("publish_app", { appId: copyId, streamName: "Everyone" }));
     if (!r.published) throw new Error("not published");

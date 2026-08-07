@@ -12,10 +12,19 @@ export const text = (v: unknown) => ({
 // an MCP client transcript is not a secret store.
 
 const SECRET_KEY = /^(password|passphrase|secret|privatekey|apikey|api_key|clientsecret|client_secret)$/i;
-const SECRET_KV = /\b(pwd|password|passwd|secret|apikey|api_key|client_secret|access_token|refresh_token)(\s*=\s*)[^;"']*/gi;
+// Key names may be prefixed/suffixed (vPassword, DB_PASSWORD, apiKey2) and
+// values may be bare, single- or double-quoted — load scripts quote them,
+// connection strings usually don't. All three value forms must be masked.
+const SECRET_KV =
+  /\b([\w.]*(?:pwd|password|passwd|passphrase|secret|api_?key|access_token|refresh_token|client_secret)[\w.]*)(\s*=\s*)("[^"]*"|'[^']*'|[^;\s"']+)/gi;
 
-function scrubString(s: string): string {
-  return s.replace(SECRET_KV, (_m, key: string, eq: string) => `${key}${eq}***REDACTED***`);
+export const REDACTED = "***REDACTED***";
+
+/** Mask key=value secrets in free text: connection strings, load scripts,
+ *  reload logs. Over-redaction of a look-alike (vPasswordPolicy=strict) is
+ *  acceptable in an egress path; under-redaction is not. */
+export function scrubString(s: string): string {
+  return s.replace(SECRET_KV, (_m, key: string, eq: string) => `${key}${eq}${REDACTED}`);
 }
 
 /** Recursively redact credential-bearing fields and embedded key=value
@@ -37,6 +46,20 @@ export function redactSecrets<T>(v: T): T {
     return out as unknown as T;
   }
   return v;
+}
+
+// ── Input validation ─────────────────────────────────────────────────────────
+// Repository/engine ids are GUIDs. Tool args are supplied by an LLM that may
+// hold untrusted content in context, and ids are interpolated into QRS URL
+// paths and WebSocket URLs — a GUID gate closes that path-injection surface.
+
+const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export const guid = z.string().regex(GUID_RE, "must be a GUID (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)");
+
+/** Escape a literal value for use inside a QRS filter string ('...'). */
+export function qrsQuote(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 }
 
 // ── Pagination ───────────────────────────────────────────────────────────────

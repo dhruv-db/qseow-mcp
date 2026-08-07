@@ -75,7 +75,7 @@ Two modes, both standard QSEoW patterns. Header-authentication virtual proxies a
 
 ### JWT and the engine WebSocket (CSWSH)
 
-Both modes have full tool coverage. Getting JWT working against the engine takes a specific handshake, documented here because it is easy to get wrong and the failure mode is an opaque `403` with an empty body.
+Both modes have full tool coverage apart from the two certificate-only QPS session tools noted above. Getting JWT working against the engine takes a specific handshake, documented here because it is easy to get wrong and the failure mode is an opaque `403` with an empty body.
 
 A virtual proxy guards WebSocket upgrades with Cross-Site WebSocket Hijacking protection. Presenting the JWT as a bearer token on the upgrade **fails** — the proxy expects what a browser sends:
 
@@ -98,7 +98,9 @@ cp .env.example .env      # fill in host + auth
 node dist/index.js        # stdio MCP server
 ```
 
-Register with an MCP client (Claude Desktop / Claude Code) as a stdio server running `node /path/to/dist/index.js` with the environment from your `.env`.
+The server reads `./.env` automatically if present (or the file named by `QSEOW_ENV_PATH`); variables already set in the environment always win. When registering with an MCP client (Claude Desktop / Claude Code), either pass the variables in the client's `env` block or set `QSEOW_ENV_PATH` to an absolute path — the client controls the working directory, so a relative `./.env` may not be found.
+
+The runnable demos (`examples/`) live in the GitHub repo — they are not part of the npm package.
 
 Integration smoke test against a live site (creates a small demo app, needs `QSEOW_ALLOW_MUTATIONS=true`):
 

@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.0 — 2026-08-06
+## 0.4.0 — 2026-08-06/07
 
 **Tier 2: the ops layer** (ships with the `admin` group):
 
@@ -21,6 +21,24 @@
 - Certificate material now loads opportunistically in jwt mode when
   `QSEOW_CERT_PATH`/`QSEOW_CERT_KEY_PATH` are set (enables the QPS tools);
   still required in certificate mode. New `QSEOW_QPS_PORT` (default 4243).
+
+**Pre-publication hardening (security review):**
+
+- Credential redaction extended beyond QRS to every free-text egress path:
+  `get_script`, `search_expressions` snippets, `get_reload_log` log lines and
+  detail messages, `reload_app` progress tail, `get_object_properties`.
+  Scrub patterns now cover quoted values (`password='x'`, `="x"`) and
+  prefixed/suffixed key names (`vPassword`, `DB_APIKEY`).
+- `set_script` refuses scripts containing the redaction marker, so a
+  get→edit→set round trip can never overwrite real credentials with masks.
+- App/task id arguments are validated as GUIDs at the tool schema and again
+  in the engine client (ids are interpolated into URLs); QRS filter values
+  built from user input are quote-escaped.
+- The server now loads `./.env` (or `QSEOW_ENV_PATH`) itself — the Quick
+  start previously implied this and it wasn't true. Explicit environment
+  variables always win.
+- `rawRequest` (healthcheck/QPS) retries once on socket-level failures,
+  matching the QRS client.
 
 ## 0.3.0 — 2026-08-06
 

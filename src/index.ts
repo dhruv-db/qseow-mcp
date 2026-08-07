@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createRequire } from "node:module";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { loadConfig } from "./config.js";
@@ -11,7 +12,9 @@ import { registerDeveloperTools } from "./tools/developer.js";
 import { registerInspectorTools } from "./tools/inspector.js";
 import { registerOpsTools } from "./tools/ops.js";
 
-const VERSION = "0.4.0";
+// Single source of truth for the version: package.json (dist/ sits one level
+// below it both in the repo and in the npm tarball).
+const VERSION: string = createRequire(import.meta.url)("../package.json").version;
 
 async function main(): Promise<void> {
   const cfg = loadConfig();
