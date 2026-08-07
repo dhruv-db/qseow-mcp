@@ -105,21 +105,24 @@ export interface VizSpec {
 
 export const VIZ_SPECS: Record<string, VizSpec> = {
   kpi:          { minDims: 0, maxDims: 0, minMeasures: 1, maxMeasures: 2, cube: "hypercube" },
-  // gauge: the engine accepts it and the object loads, but sn-gauge draws
-  // only a partial needle fragment (no arc, no value) with generically-built
-  // properties on May 2026 — kept available, flagged unverified rather than
-  // shipping a chart that renders incorrectly.
+  // gauge: still unsolved. Tried the full nebula property block, a lean
+  // client-shaped set, and per-property fixes — it loads, evaluates, emits NO
+  // console error, and draws nothing (or a stray needle fragment). No
+  // client-authored gauge exists on the test site to harvest, and headless
+  // click-to-add in the hub did not create one. The fix is known but needs
+  // input: author one gauge in the Sense client, then run
+  // scripts/harvest_client_props.mjs and mirror it (that is exactly how
+  // treemap was solved). Flagged rather than shipped broken.
   gauge:        { minDims: 0, maxDims: 0, minMeasures: 1, maxMeasures: 1, cube: "hypercube", renderVerified: false },
   barchart:     { minDims: 1, maxDims: 2, minMeasures: 1, maxMeasures: 9, cube: "hypercube" },
   linechart:    { minDims: 1, maxDims: 2, minMeasures: 1, maxMeasures: 9, cube: "hypercube" },
   combochart:   { minDims: 1, maxDims: 1, minMeasures: 1, maxMeasures: 9, cube: "hypercube" },
   piechart:     { minDims: 1, maxDims: 1, minMeasures: 1, maxMeasures: 1, cube: "hypercube" },
   scatterplot:  { minDims: 1, maxDims: 1, minMeasures: 2, maxMeasures: 3, cube: "hypercube" },
-  // treemap: builds and evaluates, and its LEGEND paints — but the plot area
-  // renders Qlik's error state ("This chart cannot be displayed") at every
-  // tile size tried. sn-treemap wants more than a generically-built property
-  // set. Flagged rather than shipped as a chart that errors in front of users.
-  treemap:      { minDims: 1, maxDims: 9, minMeasures: 1, maxMeasures: 1, cube: "hypercube", renderVerified: false },
+  // treemap: needs qMode "K" (tree mode) and a LEAN, client-shaped property
+  // set — see builder.ts. Render-verified after mirroring a client-authored
+  // treemap harvested from Qlik's shipped Content Monitor app.
+  treemap:      { minDims: 1, maxDims: 9, minMeasures: 1, maxMeasures: 1, cube: "hypercube" },
   table:        { minDims: 0, maxDims: 99, minMeasures: 0, maxMeasures: 99, cube: "hypercube" },
   "pivot-table": { minDims: 1, maxDims: 99, minMeasures: 1, maxMeasures: 99, cube: "hypercube", pivot: true },
   listbox:      { minDims: 1, maxDims: 1, minMeasures: 0, maxMeasures: 0, cube: "listobject" },

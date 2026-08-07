@@ -35,7 +35,7 @@ const positionSchema = z.object({
 // types render blank; with them, all render. Extra properties a given
 // supernova doesn't use are ignored, so one shared block is safe.
 export const NEBULA_CHART_TYPES = new Set([
-  "barchart", "linechart", "combochart", "piechart", "scatterplot", "treemap", "gauge", "table",
+  "barchart", "linechart", "combochart", "piechart", "scatterplot", "table",
 ]);
 
 const NEBULA_DEFAULTS: Record<string, any> = {
@@ -71,25 +71,14 @@ const NEBULA_EXTRAS: Record<string, Record<string, any>> = {
     dataPoint: { auto: true, showLabels: true, showValues: false, showShares: false },
   },
   treemap: {
-    // sn-treemap destructures settings.labels.{headers,leafs,overlay}.auto —
-    // each sub-block must exist with its own `auto`, and leafs carries the
-    // label/value toggles (not a sibling `values` block).
-    labels: {
-      auto: true,
-      headers: { auto: true, show: true, fontSize: 13 },
-      leafs: { auto: true, show: true, label: true, value: true, position: "auto", fontSize: 13 },
-      overlay: { auto: true, show: true, fontSize: 13 },
-    },
-    dataPoint: { auto: true, showLabels: true },
-    legend: { show: true, dock: "auto", showTitle: true, title: {} },
+    // Harvested from a CLIENT-AUTHORED treemap in Qlik's shipped Content
+    // Monitor app — not guessed. The block is FLAT BOOLEANS (and the key is
+    // "leaves", not "leafs"); the nested {auto,show} shape an earlier version
+    // guessed made sn-treemap render its error state.
+    labels: { auto: true, headers: true, overlay: true, leaves: true, values: false },
+    legend: { show: false, dock: "auto", showTitle: true },
   },
-  gauge: {
-    useSegments: false,
-    segments: { segments: [], limits: [] },
-    min: 0, max: 1000, autoMinMax: false,
-    measureAxis: { show: "labels", label: "auto", spacing: 1, autoMinMax: false, min: 0, max: 1000 },
-    orientation: "horizontal", gaugeStyle: "gauge", useLimits: false,
-  },
+
   scatterplot: {
     dataPoint: { auto: true, bubbleSizes: "auto", rangeBubbleSizes: [2, 8], showLabels: false },
     compressionResolution: "auto", navigation: false, colorMode: "primary",
@@ -150,6 +139,69 @@ export function buildVizProps(
       ...base,
       markdown: title ?? "",
       showTitles: true, subtitle: "", footnote: "",
+    };
+  }
+  if (viz === "treemap") {
+    // Mirrored from a CLIENT-AUTHORED treemap (Qlik's Content Monitor app).
+    // Two things the generic path got wrong: the cube must be qMode "K"
+    // (tree mode — "S" renders Qlik's error state, the same class of trap as
+    // pivot-table needing "P"), and the shared kitchen-sink property block
+    // injects keys sn-treemap does not expect. Keep this lean and literal.
+    return {
+      ...base,
+      showTitles: true, subtitle: "", footnote: "", showDetails: true,
+      showDisclaimer: true, disableNavMenu: false,
+      labels: { auto: true, headers: true, overlay: true, leaves: true, values: false },
+      legend: { show: false, dock: "auto", showTitle: true },
+      color: {
+        auto: false, mode: "byDimension", formatting: { numFormatFromTemplate: true },
+        useBaseColors: "off", paletteColor: { index: 6 }, useDimColVal: true,
+        useMeasureGradient: true, persistent: false, expressionIsColor: true,
+        expressionLabel: "", measureScheme: "sg", reverseScheme: false,
+        autoMinMax: true, measureMin: 0, measureMax: 10,
+      },
+      tooltip: { auto: true, hideBasic: false, title: "", description: "" },
+      qHyperCubeDef: {
+        qDimensions: dimensions.map((d, i) => ({
+          qDef: { qGrouping: "N", qFieldDefs: [d], qSortCriterias: [{ qSortByNumeric: 1, qSortByAscii: 1, qSortByLoadOrder: 1 }], autoSort: true, cId: `d${i + 1}`, othersLabel: "Others" },
+          qOtherTotalSpec: {}, qAttributeExpressions: [], qAttributeDimensions: [],
+        })),
+        qMeasures: measures.map((m, i) => ({
+          // client stores the expression WITHOUT a leading "="
+          qDef: { qGrouping: "N", qDef: m.startsWith("=") ? m.slice(1) : m, qLabel: "", qNumFormat: { qType: "U" }, autoSort: true, cId: `m${i + 1}`, numFormatFromTemplate: true },
+          qSortBy: { qSortByNumeric: -1, qSortByLoadOrder: 1 },
+          qAttributeExpressions: [], qAttributeDimensions: [], qTrendLines: [],
+        })),
+        qInterColumnSortOrder: dimensions.map((_, i) => i).concat(measures.map((_, i) => dimensions.length + i)),
+        qSuppressMissing: true,
+        qInitialDataFetch: [{ qLeft: 0, qTop: 0, qWidth: 30, qHeight: 3000 }],
+        qReductionMode: "N",
+        qMode: "K",                 // tree mode — the actual fix
+        qPseudoDimPos: -1, qNoOfLeftDims: -1, qAlwaysFullyExpanded: true,
+        qMaxStackedCells: 3000, qShowTotalsAbove: true, qIndentMode: true,
+        qSortbyYValue: -1, qColumnOrder: [],
+      },
+    };
+  }
+  if (viz === "gauge") {
+    // Lean on purpose. The shared nebula block (axes, barGrouping, totals,
+    // scrollbar...) is what kept sn-gauge from drawing — the same lesson the
+    // client-authored treemap taught: give a supernova only the properties
+    // it owns.
+    return {
+      ...base,
+      showTitles: true, subtitle: "", footnote: "", showDetails: false,
+      useSegments: false,
+      segments: { segments: [] },
+      measureAxis: { show: "labels", spacing: 1, min: 0, max: 1000, autoMinMax: true },
+      qHyperCubeDef: {
+        qDimensions: [],
+        qMeasures: measures.map((m, i) => ({
+          qDef: { qDef: m.startsWith("=") ? m.slice(1) : m, qLabel: "", qNumFormat: { qType: "U" }, cId: `m${i + 1}`, numFormatFromTemplate: true },
+          qAttributeExpressions: [], qAttributeDimensions: [],
+        })),
+        qInitialDataFetch: [{ qLeft: 0, qTop: 0, qWidth: 1, qHeight: 1 }],
+      },
     };
   }
   const isNebula = NEBULA_CHART_TYPES.has(viz);

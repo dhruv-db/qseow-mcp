@@ -37,11 +37,19 @@
   identified from each chart's exact browser TypeError: `showAsDonut` for
   pie, `settings.labels` for treemap, axis-specific `refLinesX/Y` for
   scatter, enumerated `columnOrder` for table). `validate_sheet` flags
-  objects missing them. **10 of 12 types are render-verified against a real
-  browser client at sheet-tile sizes**; `gauge` (paints nothing) and
-  `treemap` (legend paints, plot area shows Qlik's error state) are flagged
-  `renderVerified: false` and warned on rather than shipped as charts that
-  fail in front of users.
+  objects missing them. **11 of 12 types are render-verified against a real
+  browser client at sheet-tile sizes**; `gauge` alone is flagged
+  `renderVerified: false` (loads, evaluates, no console error, draws nothing)
+  and warned on rather than shipped broken.
+- **treemap fixed** by mirroring a client-authored treemap harvested from
+  Qlik's shipped Content Monitor app: the cube must be `qMode: "K"` (tree
+  mode — "S" renders Qlik's error state, the same trap as pivot needing "P"),
+  and the shared property block had to be replaced by a lean, client-shaped
+  set. Guessing from error messages had failed twice; harvesting worked in
+  one pass.
+- `scripts/harvest_client_props.mjs`: finds client-authored objects of a given
+  type and dumps their properties — the reusable way to get a supernova's real
+  property contract instead of reconstructing it from crashes.
 - `text-image` no longer fabricates `[Measure 1]` placeholder text — embedding
   a live measure needs the client's own inline markup, so the type now takes
   authored text only (measures are refused) and a kpi is the right tool for a

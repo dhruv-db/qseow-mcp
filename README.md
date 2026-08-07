@@ -76,14 +76,21 @@ Modern Sense visualizations are **nebula.js supernovas rendered by the client, n
 
 Because engine-side validation cannot prove pixels, two scripts close the loop: `scripts/viz_matrix.mjs` builds one of every supported type against a live site, and `scripts/render_proof.mjs` drives a real headless browser over the result at **sheet-tile sizes** and reports what actually drew.
 
-**Render-verified on Qlik Sense May 2026: kpi, barchart, linechart, combochart, piechart, scatterplot, table, pivot-table, listbox, text-image (10 of 12).**
+**Render-verified on Qlik Sense May 2026: kpi, barchart, linechart, combochart, piechart, scatterplot, treemap, table, pivot-table, listbox, text-image (11 of 12).**
 
-Two types are flagged `renderVerified: false` — `validate_sheet` warns on them instead of claiming they work:
+`gauge` is flagged `renderVerified: false` — it loads, evaluates, emits no console error, and draws nothing. `validate_sheet` warns on it rather than claiming it works.
 
-| Type | What actually happens |
-|---|---|
-| `gauge` | Builds and evaluates; paints nothing (or a partial needle fragment). No console error. |
-| `treemap` | Builds and evaluates, and its legend paints — but the plot area shows Qlik's error state at every tile size tried. |
+### Getting a chart's real property contract
+
+When a supernova refuses to draw, do not reverse-engineer its properties from error messages — some charts throw nothing useful. Instead ask the client what it writes:
+
+```bash
+node scripts/harvest_client_props.mjs treemap ./truth.json
+```
+
+This scans every readable app for **client-authored** objects of that type and dumps their properties. Qlik's shipped monitoring apps (Content / Operations / License Monitor) are a good source. Mirroring a harvested treemap is exactly how treemap was fixed — the answer was `qMode: "K"` (tree mode, the same class of trap as pivot-table needing `"P"`) plus a far leaner property set than the generic builder was producing. Two rounds of guesswork had failed before that.
+
+To solve `gauge`, author one gauge in the Sense client and run the same script against it.
 
 Three methodology notes worth stealing if you build something similar:
 
