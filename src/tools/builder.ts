@@ -360,7 +360,7 @@ export function registerBuilderTools(server: McpServer, engine: EngineClient, qr
       const app = await engine.app(appId);
       const known = await knownVisualizations(qrs);
       if (objectId) {
-        return text(await validateObject(app, objectId, known));
+        return text(redactSecrets(await validateObject(app, objectId, known)));
       }
       const sheet = await app.getObject(sheetId!);
       const props = await sheet.getProperties();
@@ -372,14 +372,14 @@ export function registerBuilderTools(server: McpServer, engine: EngineClient, qr
       const objects = [];
       for (const id of children) objects.push(await validateObject(app, id, known));
       const failing = objects.filter((o) => o.status === "fail").length + placement.filter((f) => f.severity === "fail").length;
-      return text({
+      return text(redactSecrets({
         sheetId,
         grid: { columns: props.columns ?? 24, rows: props.rows ?? 12 },
         objectCount: children.length,
         verdict: failing ? "FAIL" : (placement.length || objects.some((o) => o.status === "warn")) ? "WARN" : "PASS",
         placementFindings: placement,
         objects,
-      });
+      }));
     },
   );
 

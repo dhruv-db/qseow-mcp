@@ -62,7 +62,7 @@ Every value-returning analytics tool ships a **trust envelope**: expression vali
 | `security_rule_audit` | Every security rule with decoded actions + lint findings (disabled defaults, wildcard filters, unconditional write grants) |
 | `list_user_sessions` / `end_user_sessions` | Active proxy sessions per user; force logout. Certificate-backed — see note below |
 
-Mutating tools (`set_script`, `reload_app`, `create_app`, `copy_app`, `publish_app`, `delete_app`, `start_task`, `end_user_sessions`) are **gated at registration**: unless `QSEOW_ALLOW_MUTATIONS=true`, they are never registered, so a read-only deployment advertises a genuinely read-only tool surface in `tools/list`. Default is read-only.
+Mutating tools (`set_script`, `reload_app`, `create_app`, `copy_app`, `publish_app`, `delete_app`, `start_task`, `end_user_sessions`, `create_sheet`, `add_sheet_object`) are **gated at registration**: unless `QSEOW_ALLOW_MUTATIONS=true`, they are never registered, so a read-only deployment advertises a genuinely read-only tool surface in `tools/list`. Default is read-only.
 
 Every tool carries MCP tool annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) so clients that honor them can apply their own policy — e.g. `reload_app`/`set_script`/`start_task` are flagged destructive; selection tools are non-destructive session-state mutations.
 

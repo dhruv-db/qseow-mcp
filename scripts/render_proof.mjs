@@ -34,13 +34,22 @@
 //      nor textContent on document.body can see it. Playwright locators
 //      pierce open shadow roots; DOM scraping does not. Two false PASSes on
 //      treemap came from exactly this.
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 import { readFileSync } from "node:fs";
 import { chromium } from "playwright";
+
+// Site config comes from the same env vars as the server. TLS verification is
+// only disabled when you explicitly opt out (QSEOW_TLS_VERIFY=false), the same
+// switch the server uses for self-signed lab certs — never silently.
+const HOST = process.env.QSEOW_HOST || "localhost";
+const PORT = process.env.QSEOW_PROXY_PORT || "443";
+const PREFIX = process.env.QSEOW_VP_PREFIX || "jwt";
+const INSECURE = process.env.QSEOW_TLS_VERIFY === "false";
+if (INSECURE) process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 const inv = JSON.parse(readFileSync(process.argv[2], "utf8"));
 const jwt = readFileSync(process.env.JWT_PATH, "utf8").trim();
-const base = "https://localhost:18443/jwt";
+const base = `https://${HOST}:${PORT}/${PREFIX}`;
 const res = await fetch(`${base}/qps/csrftoken`, { headers: { Authorization: `Bearer ${jwt}` } });
+if (!res.ok) { console.error(`csrftoken bootstrap -> ${res.status}`); process.exit(1); }
 const m = /(X-Qlik-Session[^=]*)=([^;]+)/.exec(res.headers.get("set-cookie") ?? "");
 const SIZES = [
   { name: "8x4-tile", w: 640, h: 300 },
@@ -48,8 +57,8 @@ const SIZES = [
 ];
 const browser = await chromium.launch();
 for (const size of SIZES) {
-  const ctx = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: size.w, height: size.h } });
-  await ctx.addCookies([{ name: m[1], value: m[2], domain: "localhost", path: "/", secure: true, httpOnly: true, sameSite: "None" }]);
+  const ctx = await browser.newContext({ ignoreHTTPSErrors: INSECURE, viewport: { width: size.w, height: size.h } });
+  await ctx.addCookies([{ name: m[1], value: m[2], domain: HOST, path: "/", secure: true, httpOnly: true, sameSite: "None" }]);
   console.log(`\n--- ${size.name} (${size.w}x${size.h}) ---`);
   for (const o of inv.objects) {
     const page = await ctx.newPage();

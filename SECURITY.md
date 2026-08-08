@@ -19,6 +19,13 @@ days.
   redaction marker, so masked scripts cannot silently round-trip over real
   credentials. If you find a bypass, that's a security bug — report it as
   above.
+- **Everything that returns data is redacted**, including the UI-builder and
+  validation surfaces (`validate_sheet`, `add_sheet_object`) and object
+  property trees — not just the QRS list tools.
+- **Analytics answers carry their context.** Value-returning tools attach the
+  active selections a number was computed under and warn when an expression
+  references unknown fields (Qlik returns null/0 for those *without* erroring).
+  This is a correctness-of-reporting control, not just a convenience.
 - **GUID validation on id arguments.** App and task ids are interpolated into
   QRS URLs and engine WebSocket paths; non-GUID values are rejected at the
   schema and again at the engine client.
