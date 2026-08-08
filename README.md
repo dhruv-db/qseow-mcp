@@ -136,7 +136,17 @@ node dist/index.js        # stdio MCP server
 
 The server reads `./.env` automatically if present (or the file named by `QSEOW_ENV_PATH`); variables already set in the environment always win. When registering with an MCP client (Claude Desktop / Claude Code), either pass the variables in the client's `env` block or set `QSEOW_ENV_PATH` to an absolute path — the client controls the working directory, so a relative `./.env` may not be found.
 
-The runnable demos (`examples/`) live in the GitHub repo — they are not part of the npm package.
+## Demos
+
+Three runnable demos live in [`examples/`](examples/) (GitHub repo only — not part of the npm package). Each has a runbook and an assertion-backed `trace.mjs`, so the claims are verifiable rather than illustrative:
+
+| Demo | Shows | Tool time |
+|---|---|---|
+| [finance-close](examples/finance-close-demo/) | Root-cause a $50M reconciliation mismatch: KPI → definition → lineage → script → fix → tie-out | ~5 s |
+| [ops](examples/ops-demo/) | Why did the nightly reload fail; is the engine healthy; has the security-rule baseline drifted | ~3 s |
+| [builder](examples/builder-demo/) | Build a sheet from a brief, refuse nonsense, catch a silently-wrong measure, verify renderability | ~20 s |
+
+Run any of them with `cd examples/<demo> && node trace.mjs` — a non-zero exit means an assertion failed.
 
 Integration smoke test against a live site (creates a small demo app, needs `QSEOW_ALLOW_MUTATIONS=true`):
 

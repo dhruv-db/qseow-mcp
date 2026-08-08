@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.0 — 2026-08-07
+## 0.5.0 — 2026-08-07/08
 
 **The UI builder + render-validation gate, and the analytics trust envelope.**
 
@@ -63,6 +63,10 @@
   the pixel check is reproducible. Detects Qlik's error state explicitly —
   counting painted SVG nodes reports false PASSes because a broken chart
   still paints its legend.
+- Demo suite completed and validated: `examples/README.md` index plus
+  assertion-backed `trace.mjs` for all three demos (finance-close, ops,
+  builder) with archived transcripts of real runs. Every demo claim is now
+  executable — a non-zero exit means a claim failed.
 - 44 tools total.
 
 ## 0.4.0 — 2026-08-06/07
