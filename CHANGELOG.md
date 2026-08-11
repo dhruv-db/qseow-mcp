@@ -23,8 +23,8 @@
   `settingName` names a credential. The label itself is preserved, so the
   response still shows *that* a password setting exists.
 
-**Operators running 0.5.0 or earlier with an OIDC or SAML virtual proxy should
-treat that client secret as disclosed and rotate it.**
+Found and fixed **pre-release**: the repository was private and 0.5.0 was
+never published, so no third-party deployment was affected.
 
 ## 0.5.0 — 2026-08-07/08
 
