@@ -34,6 +34,22 @@ export function scrubString(s: string): string {
   return s.replace(SECRET_KV, (_m, key: string, eq: string) => `${key}${eq}${REDACTED}`);
 }
 
+// Some QRS entities carry credentials as name/value PAIRS rather than as a
+// named field — userdirectoryconnector.settings holds the LDAP bind password
+// as {name: "Password", value: "..."}. The secret then sits under a key called
+// "value", which tells a name-based matcher nothing. Detect the sibling that
+// names it. (Same bug family as the camelCase miss: the matcher was looking in
+// the wrong place, not matching too narrowly.)
+const NAME_KEYS = new Set(["name", "key", "settingname", "property", "propertyname"]);
+const VALUE_KEYS = new Set(["value", "val", "settingvalue"]);
+
+function pairNamesASecret(obj: Record<string, unknown>): boolean {
+  for (const [k, v] of Object.entries(obj)) {
+    if (NAME_KEYS.has(k.toLowerCase()) && typeof v === "string" && SECRET_KEY.test(v)) return true;
+  }
+  return false;
+}
+
 /** Recursively redact credential-bearing fields and embedded key=value
  *  secrets from an arbitrary QRS response. */
 export function redactSecrets<T>(v: T): T {
@@ -41,8 +57,9 @@ export function redactSecrets<T>(v: T): T {
   if (Array.isArray(v)) return v.map((x) => redactSecrets(x)) as unknown as T;
   if (v !== null && typeof v === "object") {
     const out: Record<string, unknown> = {};
+    const pairSecret = pairNamesASecret(v as Record<string, unknown>);
     for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
-      if (SECRET_KEY.test(k)) {
+      if (SECRET_KEY.test(k) || (pairSecret && VALUE_KEYS.has(k.toLowerCase()))) {
         // Keep null/empty as-is — "no credential present" is a legitimate,
         // non-sensitive signal. Everything else is masked.
         out[k] = val === null || val === undefined || val === "" ? val : "***REDACTED***";

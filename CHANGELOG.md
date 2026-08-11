@@ -15,6 +15,13 @@
   are unaffected and still egress intact.
 - Regression tests + a `virtualproxyconfig` fixture cover the prefixed-name
   case and the non-secret look-alikes.
+- **Same bug family, closed pre-emptively:** credentials stored as name/value
+  PAIRS (`userdirectoryconnector.settings` holds an LDAP bind password as
+  `{name: "Password", value: "..."}`) put the secret under a key called
+  `value`, which a name-based matcher walks straight past. The redactor now
+  masks a `value`/`val`/`settingValue` whose sibling `name`/`key`/
+  `settingName` names a credential. The label itself is preserved, so the
+  response still shows *that* a password setting exists.
 
 **Operators running 0.5.0 or earlier with an OIDC or SAML virtual proxy should
 treat that client secret as disclosed and rotate it.**

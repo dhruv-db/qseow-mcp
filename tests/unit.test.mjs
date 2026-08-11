@@ -81,6 +81,27 @@ test("redactSecrets matches credential key names with prefixes and suffixes", ()
   }
 });
 
+test("redactSecrets masks name/value PAIRS that name a credential", () => {
+  // userdirectoryconnector.settings shape: the secret lives under "value" and
+  // is only identifiable from its sibling "name". A name-based matcher alone
+  // walks straight past it.
+  const udc = redactSecrets({
+    name: "LDAP-Corp",
+    settings: [
+      { id: "1", name: "Username", value: "svc_bind" },
+      { id: "2", name: "Password", value: "hunter2" },
+      { id: "3", name: "Host", value: "ldap.internal" },
+      { id: "4", settingName: "Client Secret", value: "shh" },
+    ],
+  });
+  assert.equal(udc.settings[0].value, "svc_bind");        // not a credential
+  assert.equal(udc.settings[1].value, REDACTED);          // named Password
+  assert.equal(udc.settings[2].value, "ldap.internal");   // not a credential
+  assert.equal(udc.settings[3].value, REDACTED);          // settingName variant
+  assert.equal(udc.settings[1].name, "Password");         // the LABEL survives
+  assert.equal(udc.name, "LDAP-Corp");                    // entity name untouched
+});
+
 // ── scrubString: free-text egress (scripts, logs, snippets) ──────────────────
 
 test("scrubString masks quoted and bare values, prefixed key names", () => {
