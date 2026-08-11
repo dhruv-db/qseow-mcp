@@ -11,7 +11,14 @@ export const text = (v: unknown) => ({
 // (PWD=...;). Generic endpoints like qrs_search must never egress either —
 // an MCP client transcript is not a secret store.
 
-const SECRET_KEY = /^(password|passphrase|secret|privatekey|apikey|api_key|clientsecret|client_secret)$/i;
+// Matched as a SUBSTRING of the field name, not as an exact token: Qlik names
+// its identity-provider credential fields with camelCase prefixes
+// (oidcClientSecret, samlClientSecret), which an anchored ^...$ pattern misses
+// entirely — virtualproxyconfig egressed a live OIDC client secret that way.
+// Over-redaction of a look-alike (passwordLastChanged) is acceptable here;
+// under-redaction is not.
+const SECRET_KEY =
+  /(password|passwd|passphrase|secret|privatekey|private_key|apikey|api_key|accesstoken|access_token|refreshtoken|refresh_token)/i;
 // Key names may be prefixed/suffixed (vPassword, DB_PASSWORD, apiKey2) and
 // values may be bare, single- or double-quoted — load scripts quote them,
 // connection strings usually don't. All three value forms must be masked.

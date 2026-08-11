@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.5.1 — 2026-08-11
+
+**Security fix: credential redaction missed camelCase-prefixed field names.**
+
+- `redactSecrets` matched field names against an anchored `^...$` pattern, so
+  it masked `clientSecret` but not `oidcClientSecret` / `samlClientSecret` —
+  the names Qlik actually uses on `virtualproxyconfig`. A site with OIDC SSO
+  configured egressed its identity-provider client secret in cleartext through
+  `qrs_search(entity: "virtualproxyconfig", full: true)`. Field names are now
+  matched as substrings, mirroring the prefix/suffix tolerance `SECRET_KV`
+  already applied to free text.
+- Public, non-credential fields (`oidcClientId`, `jwtPublicKeyCertificate`)
+  are unaffected and still egress intact.
+- Regression tests + a `virtualproxyconfig` fixture cover the prefixed-name
+  case and the non-secret look-alikes.
+
+**Operators running 0.5.0 or earlier with an OIDC or SAML virtual proxy should
+treat that client secret as disclosed and rotate it.**
+
 ## 0.5.0 — 2026-08-07/08
 
 **The UI builder + render-validation gate, and the analytics trust envelope.**

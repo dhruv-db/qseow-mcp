@@ -47,6 +47,40 @@ test("redactSecrets handles arrays and non-objects", () => {
   assert.equal(arr[3], null);
 });
 
+test("redactSecrets masks camelCase-prefixed credential fields", () => {
+  // Regression: an anchored ^...$ key pattern matched only bare token names, so
+  // virtualproxyconfig.oidcClientSecret egressed a live Entra secret verbatim.
+  const vp = redactSecrets(fixture("virtualproxy_full.json"));
+  assert.equal(vp.oidcClientSecret, REDACTED);
+  assert.equal(vp.samlClientSecret, REDACTED);
+  assert.ok(!JSON.stringify(vp).includes("SYNTHETIC~not~a~real"));
+});
+
+test("redactSecrets keeps non-credential look-alike fields intact", () => {
+  const vp = redactSecrets(fixture("virtualproxy_full.json"));
+  assert.equal(vp.oidcClientId, "11111111-2222-3333-4444-555555555555");
+  assert.equal(vp.oidcAttributeClientId, "aud");
+  assert.equal(vp.hasSecureAttributeHttps, true);
+  assert.equal(vp.sessionCookieHeaderName, "X-Qlik-Session-oidc");
+  assert.equal(vp.anonymousAccessMode, 0);
+  // A public certificate is not a credential and must survive redaction.
+  assert.ok(vp.jwtPublicKeyCertificate.includes("BEGIN CERTIFICATE"));
+});
+
+test("redactSecrets matches credential key names with prefixes and suffixes", () => {
+  const out = redactSecrets({
+    oidcClientSecret: "a", DB_PASSWORD: "b", apiKey2: "c",
+    vPassphrase: "d", privateKeyPem: "e", refresh_token: "f",
+    clientId: "keep", publicKey: "keep", secureFlag: "keep", username: "keep",
+  });
+  for (const k of ["oidcClientSecret", "DB_PASSWORD", "apiKey2", "vPassphrase", "privateKeyPem", "refresh_token"]) {
+    assert.equal(out[k], REDACTED, `expected ${k} to be redacted`);
+  }
+  for (const k of ["clientId", "publicKey", "secureFlag", "username"]) {
+    assert.equal(out[k], "keep", `expected ${k} to survive`);
+  }
+});
+
 // ── scrubString: free-text egress (scripts, logs, snippets) ──────────────────
 
 test("scrubString masks quoted and bare values, prefixed key names", () => {
