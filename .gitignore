@@ -11,3 +11,7 @@ certs/
 coverage/
 # package-lock.json is COMMITTED on purpose: `npm ci` in CI and
 # reproducible installs for consumers both require it.
+
+# MCPB bundle build artifacts (the .mcpb is attached to the GitHub release)
+mcpb/build/
+mcpb/*.mcpb

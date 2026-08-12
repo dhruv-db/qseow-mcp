@@ -8,6 +8,49 @@
 
 > qseow-mcp is an independent open-source project by Terenzi LLC. It is **not affiliated with, endorsed by, or sponsored by QlikTech International AB**. Qlik®, Qlik Sense®, and related marks are trademarks of QlikTech International AB, used here only to identify the software this server interoperates with.
 
+## Install
+
+**Claude Desktop — one-click.** Download `qseow-mcp-<version>.mcpb` from the
+[latest release](https://github.com/rmterenzi/qseow-mcp/releases/latest) and
+double-click it. Claude Desktop prompts for your hostname and certificate
+paths; there is no JSON to edit and no `npm install` to run.
+
+**Any MCP client — via npx.** No clone, no build:
+
+```jsonc
+{
+  "mcpServers": {
+    "qseow": {
+      "command": "npx",
+      "args": ["-y", "qseow-mcp"],
+      "env": {
+        "QSEOW_HOST": "sense.example.com",
+        "QSEOW_CERT_PATH": "/absolute/path/to/client.pem",
+        "QSEOW_CERT_KEY_PATH": "/absolute/path/to/client_key.pem",
+        "QSEOW_ROOT_CERT_PATH": "/absolute/path/to/root.pem"
+      }
+    }
+  }
+}
+```
+
+Claude Code, same thing in one line:
+
+```bash
+claude mcp add qseow --scope user \
+  -e QSEOW_HOST=sense.example.com \
+  -e QSEOW_CERT_PATH=/absolute/path/to/client.pem \
+  -e QSEOW_CERT_KEY_PATH=/absolute/path/to/client_key.pem \
+  -- npx -y qseow-mcp
+```
+
+Certificates come from **QMC → Certificates → Export** (choose PEM). For JWT
+instead of certificates, see [Authentication](#authentication).
+
+**It starts read-only.** Mutating tools are not registered at all until you set
+`QSEOW_ALLOW_MUTATIONS=true`, so the tool list a client sees is genuinely
+read-only until you decide otherwise.
+
 ## Tools by persona
 
 Expose only what a given deployment needs with `QSEOW_TOOL_GROUPS`.
@@ -168,7 +211,10 @@ The natural next question — "so how does a *real user* get a token, as themsel
 
 Standing up the issuer, the IdP wiring, and the scoping correctly is the part worth getting right the first time — [Terenzi LLC](https://www.terenzi.llc/qseow-mcp) does exactly this as part of a [support-agent deployment](https://www.terenzi.llc/services/support-agent-assessment).
 
-## Quick start
+## Run from source
+
+For development, or to build the Claude Desktop bundle yourself
+(`node mcpb/build.mjs` → `mcpb/qseow-mcp-<version>.mcpb`).
 
 ```bash
 npm install && npm run build

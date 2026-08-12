@@ -1,0 +1,134 @@
+{
+  "manifest_version": "0.2",
+  "name": "qseow-mcp",
+  "display_name": "Qlik Sense Enterprise on Windows (qseow-mcp)",
+  "version": "0.0.0",
+  "description": "Let an AI agent troubleshoot, govern and build against a Qlik Sense Enterprise on Windows site.",
+  "long_description": "An MCP server for Qlik Sense Enterprise on Windows (client-managed). Walks a wrong number from KPI to source the way a support engineer does \u2014 governed measures, expression search, lineage, load script \u2014 plus reload forensics, security-rule audit, and a UI builder that verifies what it builds will actually render. Read-only unless you explicitly enable mutations.",
+  "author": {
+    "name": "Terenzi LLC",
+    "url": "https://www.terenzi.llc/qseow-mcp"
+  },
+  "homepage": "https://www.terenzi.llc/qseow-mcp",
+  "documentation": "https://github.com/rmterenzi/qseow-mcp#readme",
+  "support": "https://github.com/rmterenzi/qseow-mcp/issues",
+  "license": "Apache-2.0",
+  "keywords": [
+    "qlik",
+    "qlik-sense",
+    "qseow",
+    "business-intelligence",
+    "qrs",
+    "qix"
+  ],
+  "server": {
+    "type": "node",
+    "entry_point": "server/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": [
+        "${__dirname}/server/index.js"
+      ],
+      "env": {
+        "QSEOW_HOST": "${user_config.host}",
+        "QSEOW_QRS_PORT": "${user_config.qrs_port}",
+        "QSEOW_ENGINE_PORT": "${user_config.engine_port}",
+        "QSEOW_AUTH_MODE": "certificate",
+        "QSEOW_CERT_PATH": "${user_config.cert_path}",
+        "QSEOW_CERT_KEY_PATH": "${user_config.cert_key_path}",
+        "QSEOW_ROOT_CERT_PATH": "${user_config.root_cert_path}",
+        "QSEOW_CERT_USER_DIRECTORY": "${user_config.cert_user_directory}",
+        "QSEOW_CERT_USER_ID": "${user_config.cert_user_id}",
+        "QSEOW_TOOL_GROUPS": "${user_config.tool_groups}",
+        "QSEOW_ALLOW_MUTATIONS": "${user_config.allow_mutations}",
+        "QSEOW_TLS_VERIFY": "${user_config.tls_verify}"
+      }
+    }
+  },
+  "user_config": {
+    "host": {
+      "type": "string",
+      "title": "Qlik Sense hostname",
+      "description": "Hostname of the QSEoW node, no scheme (e.g. sense.example.com)",
+      "required": true
+    },
+    "cert_path": {
+      "type": "file",
+      "title": "Client certificate (client.pem)",
+      "description": "QMC-exported client certificate. QMC > Certificates > Export, choose PEM.",
+      "required": true
+    },
+    "cert_key_path": {
+      "type": "file",
+      "title": "Client certificate key (client_key.pem)",
+      "description": "The private key exported alongside the client certificate.",
+      "required": true
+    },
+    "root_cert_path": {
+      "type": "file",
+      "title": "Root certificate (root.pem) \u2014 optional",
+      "description": "Qlik root CA. Provide it to keep TLS verification on.",
+      "required": false
+    },
+    "cert_user_directory": {
+      "type": "string",
+      "title": "Identity: user directory",
+      "description": "Directory asserted on QRS calls in certificate mode.",
+      "default": "INTERNAL",
+      "required": false
+    },
+    "cert_user_id": {
+      "type": "string",
+      "title": "Identity: user id",
+      "description": "Prefer a dedicated least-privilege account over sa_repository where you can.",
+      "default": "sa_repository",
+      "required": false
+    },
+    "qrs_port": {
+      "type": "number",
+      "title": "Repository (QRS) port",
+      "default": 4242,
+      "required": false,
+      "description": "Repository Service port. Default 4242."
+    },
+    "engine_port": {
+      "type": "number",
+      "title": "Engine (QIX) port",
+      "default": 4747,
+      "required": false,
+      "description": "Engine/QIX WebSocket port. Default 4747."
+    },
+    "tool_groups": {
+      "type": "string",
+      "title": "Tool groups to expose",
+      "description": "Comma-separated: analyst, developer, admin. Expose only what you need.",
+      "default": "analyst,developer,admin",
+      "required": false
+    },
+    "allow_mutations": {
+      "type": "boolean",
+      "title": "Allow write operations",
+      "description": "OFF means writing tools are never registered \u2014 the tool list is genuinely read-only. Turn on only deliberately.",
+      "default": false,
+      "required": false
+    },
+    "tls_verify": {
+      "type": "boolean",
+      "title": "Verify TLS certificates",
+      "description": "Leave on in production. Turn off only for a self-signed lab site.",
+      "default": true,
+      "required": false
+    }
+  },
+  "compatibility": {
+    "claude_desktop": ">=0.10.0",
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ],
+    "runtimes": {
+      "node": ">=20.0.0"
+    }
+  }
+}

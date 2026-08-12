@@ -13,7 +13,8 @@
     "dev": "tsx src/index.ts",
     "smoke": "node scripts/smoke.mjs",
     "prepare": "npm run build",
-    "test": "npm run build && node --test tests/"
+    "test": "npm run build && node --test tests/",
+    "bundle": "node mcpb/build.mjs"
   },
   "engines": {
     "node": ">=20"
