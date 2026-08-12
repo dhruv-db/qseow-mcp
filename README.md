@@ -4,7 +4,7 @@
 
 **The glue layer for a Qlik support agent.** Qlik Cloud ships a native MCP endpoint; the client-managed estate — where a large share of enterprise Qlik still runs — has nothing equivalent. This server exposes the on-prem API surface (Repository/QRS, Engine/QIX, Proxy) as [Model Context Protocol](https://modelcontextprotocol.io) tools, so an agent can do what a support engineer does when a number is wrong: walk KPI → object → sheet → app → script → source, evaluating definitions at every step — plus govern, query, and build against the site.
 
-> **Status: 0.5.0, pre-release.** All 44 tools exercised end-to-end against Qlik Sense **May 2026 (15.13.8)** on a single-node site, in BOTH certificate and JWT auth modes (including the full mutation lifecycle: copy → set_script → reload → publish → delete, and task start-to-finish). Tool names and shapes may still change.
+> **Status: 0.5.1, pre-release.** All 44 tools exercised end-to-end against Qlik Sense **May 2026 (15.13.8)** on a single-node site, in BOTH certificate and JWT auth modes (including the full mutation lifecycle: copy → set_script → reload → publish → delete, and task start-to-finish). Tool names and shapes may still change.
 
 > qseow-mcp is an independent open-source project by Terenzi LLC. It is **not affiliated with, endorsed by, or sponsored by QlikTech International AB**. Qlik®, Qlik Sense®, and related marks are trademarks of QlikTech International AB, used here only to identify the software this server interoperates with.
 
@@ -125,6 +125,32 @@ Things that are **not** the cause, in case you are debugging a similar 403: `Ori
 One genuine misconfiguration worth checking on any scripted setup: a virtual proxy created through the QRS API comes up with an **empty `loadBalancingServerNodes`**, so no engine is reachable through it until a server node is attached.
 
 To debug proxy authentication generally, enable debug logging: create `%ProgramData%\Qlik\Sense\Proxy\LocalLogConfig.xml` with a `QSRollingFileAppender` at `threshold=debug` bound to the `Audit.Proxy`, `System.Proxy`, and `Security.Proxy` loggers, then restart the proxy. It logs every request header the proxy actually received, which is the fastest way to compare a working browser upgrade against your client.
+
+### Minting a test JWT
+
+JWT mode is bring-your-own-token: you supply a signed JWT via `QSEOW_JWT` (or `QSEOW_JWT_PATH`), and your JWT virtual proxy's config decides which claims map to the Qlik identity. In the common setup the VP maps `sub` → user id and a directory claim → user directory, and validates the signature against the certificate pasted into the VP. To generate a short-lived token for testing, sign with the matching **private** key (RS256):
+
+```js
+// mint-jwt.mjs — node >=20, no deps. Usage: node mint-jwt.mjs > token.jwt
+import { createSign } from "node:crypto";
+import { readFileSync } from "node:fs";
+
+const key = readFileSync(process.env.JWT_PRIVATE_KEY_PATH, "utf8"); // PEM the VP trusts
+const b64u = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+const now = Math.floor(Date.now() / 1000);
+const header = { alg: "RS256", typ: "JWT" };
+const payload = {
+  sub: process.env.QLIK_USER_ID || "svc_agent",          // → VP "User ID" claim
+  directory: process.env.QLIK_USER_DIRECTORY || "QSEOW",  // → VP "User directory" claim
+  iat: now,
+  exp: now + 3600,
+};
+const unsigned = `${b64u(header)}.${b64u(payload)}`;
+const sig = createSign("RSA-SHA256").update(unsigned).sign(key).toString("base64url");
+process.stdout.write(`${unsigned}.${sig}`);
+```
+
+Match the claim names to *your* virtual proxy's attribute mapping — they are configurable in the QMC. The identity you mint for must hold a Professional (or appropriate) license allocation, or the engine rejects `OpenDoc` with an opaque socket close.
 
 ## Quick start
 
