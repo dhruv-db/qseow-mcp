@@ -33,7 +33,7 @@
         "QSEOW_HOST": "${user_config.host}",
         "QSEOW_QRS_PORT": "${user_config.qrs_port}",
         "QSEOW_ENGINE_PORT": "${user_config.engine_port}",
-        "QSEOW_AUTH_MODE": "certificate",
+        "QSEOW_AUTH_MODE": "${user_config.auth_mode}",
         "QSEOW_CERT_PATH": "${user_config.cert_path}",
         "QSEOW_CERT_KEY_PATH": "${user_config.cert_key_path}",
         "QSEOW_ROOT_CERT_PATH": "${user_config.root_cert_path}",
@@ -41,7 +41,9 @@
         "QSEOW_CERT_USER_ID": "${user_config.cert_user_id}",
         "QSEOW_TOOL_GROUPS": "${user_config.tool_groups}",
         "QSEOW_ALLOW_MUTATIONS": "${user_config.allow_mutations}",
-        "QSEOW_TLS_VERIFY": "${user_config.tls_verify}"
+        "QSEOW_TLS_VERIFY": "${user_config.tls_verify}",
+        "QSEOW_JWT": "${user_config.jwt}",
+        "QSEOW_VP_PREFIX": "${user_config.vp_prefix}"
       }
     }
   },
@@ -52,17 +54,24 @@
       "description": "Hostname of the QSEoW node, no scheme (e.g. sense.example.com)",
       "required": true
     },
+    "auth_mode": {
+      "type": "string",
+      "title": "Authentication mode",
+      "description": "'certificate' (service identity, full access, simplest on a desktop) or 'jwt' (acts as a real user and inherits their section access and security rules).",
+      "default": "certificate",
+      "required": true
+    },
     "cert_path": {
       "type": "file",
       "title": "Client certificate (client.pem)",
-      "description": "QMC-exported client certificate. QMC > Certificates > Export, choose PEM.",
-      "required": true
+      "description": "Required for certificate mode. QMC > Certificates > Export, choose PEM. Also enables the Proxy-API session tools in JWT mode.",
+      "required": false
     },
     "cert_key_path": {
       "type": "file",
       "title": "Client certificate key (client_key.pem)",
-      "description": "The private key exported alongside the client certificate.",
-      "required": true
+      "description": "Required for certificate mode. The private key exported alongside the client certificate.",
+      "required": false
     },
     "root_cert_path": {
       "type": "file",
@@ -82,6 +91,20 @@
       "title": "Identity: user id",
       "description": "Prefer a dedicated least-privilege account over sa_repository where you can.",
       "default": "sa_repository",
+      "required": false
+    },
+    "jwt": {
+      "type": "string",
+      "title": "JWT (jwt mode only)",
+      "description": "A signed token for your JWT virtual proxy. Note tokens expire \u2014 for a desktop install use a long-lived token, or prefer certificate mode.",
+      "sensitive": true,
+      "required": false
+    },
+    "vp_prefix": {
+      "type": "string",
+      "title": "Virtual proxy prefix (jwt mode only)",
+      "description": "Prefix of the JWT virtual proxy, e.g. 'jwt' for https://host/jwt/.",
+      "default": "jwt",
       "required": false
     },
     "qrs_port": {
