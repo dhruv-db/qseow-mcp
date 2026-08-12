@@ -1,5 +1,7 @@
 # Builder demo: an agent builds a sheet — and knows whether it will render
 
+> ⚠ **Runs against a live Qlik site.** `trace.mjs` creates and then deletes its own app — nothing else is touched — but it still needs `QSEOW_ALLOW_MUTATIONS=true`. Point it at a sandbox or the demo box, **never production.**
+
 **The pitch (one sentence):** an agent turns "give me a regional sales sheet"
 into four working visualizations, refuses the requests that would produce
 broken objects, and verifies that what it built will actually draw — because

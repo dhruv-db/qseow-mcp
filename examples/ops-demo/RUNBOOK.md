@@ -1,5 +1,7 @@
 # Ops-layer demo (Tier 2 tools)
 
+> ⚠ **Runs against a live Qlik site and creates real objects** — an app, a permanently-failing reload task, and (via `plant.mjs`) a real **custom security rule**. Point it at a sandbox or the demo box, **never production.** `reset.mjs` removes the planted rule.
+
 Three short beats showing an agent doing site operations, not just analytics.
 Prereq: `node examples/ops-demo/setup.mjs` once (idempotent). It builds an app
 whose nightly extract file never lands and a reload task that therefore always

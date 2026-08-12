@@ -1,5 +1,7 @@
 # Finance-close demo: an agent traces a reconciliation mismatch to root cause
 
+> ⚠ **Runs against a live Qlik site and creates real objects** — two apps, a folder data connection, a master measure, a sheet and KPI — and `plant.mjs` rewrites a real load script. Point it at a sandbox or the demo box, **never production.** `reset.mjs` restores the clean state.
+
 **The pitch (one sentence):** month-end close shows the dashboard $50M higher
 than the certified datamart; an agent using qseow-mcp walks KPI → object →
 sheet → app → script → source and finds the double-loaded adjustment batch —
