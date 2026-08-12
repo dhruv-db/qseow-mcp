@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.2 — 2026-08-12
+
+- Adds `mcpName` to `package.json` and a `server.json`, so the server can be
+  listed in the [official MCP Registry](https://registry.modelcontextprotocol.io).
+  The registry verifies that the published npm package carries `mcpName`,
+  which is why this is a release rather than a metadata-only change.
+- No functional change to any tool.
+
+
 ## 0.5.1 — 2026-08-11
 
 **Security fix: credential redaction missed camelCase-prefixed field names.**

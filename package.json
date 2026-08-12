@@ -1,6 +1,7 @@
 {
   "name": "qseow-mcp",
-  "version": "0.5.1",
+  "version": "0.5.2",
+  "mcpName": "io.github.rmterenzi/qseow-mcp",
   "description": "MCP server for Qlik Sense Enterprise on Windows (client-managed): Repository, Engine/QIX, and Proxy APIs as Model Context Protocol tools for analysts, developers, and admins.",
   "license": "Apache-2.0",
   "type": "module",
