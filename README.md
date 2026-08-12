@@ -13,6 +13,7 @@
 Expose only what a given deployment needs with `QSEOW_TOOL_GROUPS`.
 
 **Analyst** — ask questions of data (Engine/QIX)
+
 | Tool | Purpose |
 |---|---|
 | `list_engine_apps` | Apps visible to the session |
@@ -26,6 +27,7 @@ Expose only what a given deployment needs with `QSEOW_TOOL_GROUPS`.
 Every value-returning analytics tool ships a **trust envelope**: expression validation warnings (a misspelled field returns null/0 *without erroring* — the engine's worst habit) and the active selections the value was computed under, so a filtered number can never masquerade as the unfiltered truth.
 
 **Inspector** — the troubleshooting loop (ships with the analyst group)
+
 | Tool | Purpose |
 |---|---|
 | `list_sheets` / `get_sheet_objects` | Walk the UI layer: sheets and the objects on them |
@@ -38,6 +40,7 @@ Every value-returning analytics tool ships a **trust envelope**: expression vali
 **Published-app caveat:** the engine hides a published app's *script* and *lineage* from user identities (internal certificate identities bypass this). The support-agent pattern is `copy_app` → trace the owned copy — the copy carries the same script and definitions.
 
 **Developer** — build and ship apps (Engine + QRS)
+
 | Tool | Purpose |
 |---|---|
 | `create_sheet` / `add_sheet_object` | Build the UI layer: sheets and visualizations. Creation runs the render-validation gate and returns its verdict |
@@ -49,6 +52,7 @@ Every value-returning analytics tool ships a **trust envelope**: expression vali
 | `copy_app` / `publish_app` / `delete_app` | Duplicate; publish to a stream; delete |
 
 **Admin** — govern the site (QRS)
+
 | Tool | Purpose |
 |---|---|
 | `qrs_about` / `service_status` | Version; health of every service on every node |
@@ -152,6 +156,8 @@ process.stdout.write(`${unsigned}.${sig}`);
 
 Match the claim names to *your* virtual proxy's attribute mapping — they are configurable in the QMC. The identity you mint for must hold a Professional (or appropriate) license allocation, or the engine rejects `OpenDoc` with an opaque socket close.
 
+**Trust model — read this before you point it at production.** A JWT virtual proxy verifies every token against the certificate you paste into it; a token is accepted only if it was signed by the *matching private key*. That private key is therefore a **master credential**: whoever holds it can mint a token asserting any identity the proxy will map, exactly as any SAML/OIDC identity provider can. This is inherent to JWT SSO, not something this server adds — qseow-mcp is only a *client* presenting a token, and it can impersonate nothing against a proxy whose private key it does not hold. The snippet above is harmless to publish for the same reason: it can only sign against a proxy **you already control**. Security therefore rests on four things, in order: (1) **guard the signing key** like the crown jewel it is — a secret store or HSM, never a repo, rotate on suspicion; (2) authentication is not authorization — a minted identity is still bound by that user's **security rules, stream access, and section access**, so scope the agent by scoping the Qlik user (the reason to prefer JWT over certificate mode, which runs as an internal identity that bypasses security rules); (3) the identity needs a **license allocation** to do anything; (4) keep tokens **short-lived** (the example expires in an hour) so a leaked token, unlike a leaked key, expires on its own. The server itself is read-only by default, so even a valid identity cannot mutate unless you enable it.
+
 ## Quick start
 
 ```bash
@@ -186,6 +192,12 @@ npm run smoke
 - QRS calls generate a fresh `xrfkey` per request.
 - `QSEOW_TLS_VERIFY=false` exists for self-signed lab certificates; leave it on in production.
 
+## Commercial support
+
+qseow-mcp is free and open-source, and stays that way. If you want a Qlik troubleshooting/support agent running against your own estate — the server plus agent configuration, playbooks, and team enablement, deployed and validated — that's what [Terenzi LLC](https://www.terenzi.llc/qseow-mcp) does. There's a fixed-fee, read-only [assessment](https://www.terenzi.llc/services/support-agent-assessment) to start.
+
+Terenzi LLC is a Qlik partner; this project is independent and is not a Qlik product (see the trademark note above).
+
 ## License
 
-Apache-2.0
+Apache-2.0 — Copyright 2026 Terenzi LLC. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
