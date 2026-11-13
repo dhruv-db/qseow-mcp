@@ -7,6 +7,12 @@ import { expressionWarnings, activeSelections } from "./quality.js";
 // Engine tools operate on a closed domain (the Qlik site). Selections mutate
 // only session state — no persisted data changes — so selection tools carry
 // readOnlyHint: false but destructiveHint: false.
+/** Sort column first, then every other column in order — a full permutation.
+ *  (0.5.2 built 0..width-2, silently dropping the last column.) */
+export function interColumnSortOrder(width: number, sortCol: number): number[] {
+  return [sortCol, ...Array.from({ length: width }, (_, i) => i).filter((i) => i !== sortCol)];
+}
+
 const READ = { readOnlyHint: true, openWorldHint: false };
 const SESSION_MUT = { readOnlyHint: false, destructiveHint: false, openWorldHint: false };
 
@@ -93,6 +99,9 @@ export function registerAnalystTools(server: McpServer, engine: EngineClient): v
       annotations: READ,
     },
     async ({ appId, dimensions, measures, maxRows, sortByMeasureDesc }) => {
+      if (sortByMeasureDesc !== undefined && (sortByMeasureDesc < 0 || sortByMeasureDesc >= measures.length)) {
+        throw new Error(`sortByMeasureDesc must be a 0-based index into measures (0..${measures.length - 1}), got ${sortByMeasureDesc}`);
+      }
       const app = await engine.app(appId);
       const limit = maxRows ?? 200;
       const width = dimensions.length + measures.length;
@@ -106,7 +115,7 @@ export function registerAnalystTools(server: McpServer, engine: EngineClient): v
           qMeasures: measures.map((m) => ({ qDef: { qDef: m.startsWith("=") ? m : `=${m}` } })),
           qInitialDataFetch: [{ qLeft: 0, qTop: 0, qWidth: width, qHeight: Math.min(limit, Math.floor(10000 / Math.max(width, 1))) }],
           ...(sortByMeasureDesc !== undefined
-            ? { qInterColumnSortOrder: [dimensions.length + sortByMeasureDesc, ...Array.from({ length: width - 1 }, (_, i) => i).filter((i) => i !== dimensions.length + sortByMeasureDesc)] }
+            ? { qInterColumnSortOrder: interColumnSortOrder(width, dimensions.length + sortByMeasureDesc) }
             : {}),
         },
       };

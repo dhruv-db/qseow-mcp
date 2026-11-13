@@ -1,6 +1,6 @@
 {
   "name": "qseow-mcp",
-  "version": "0.5.2",
+  "version": "0.6.0-db.1",
   "mcpName": "io.github.rmterenzi/qseow-mcp",
   "description": "MCP server for Qlik Sense Enterprise on Windows (client-managed): Repository, Engine/QIX, and Proxy APIs as Model Context Protocol tools for analysts, developers, and admins.",
   "license": "Apache-2.0",
@@ -14,7 +14,7 @@
     "dev": "tsx src/index.ts",
     "smoke": "node scripts/smoke.mjs",
     "prepare": "npm run build",
-    "test": "npm run build && node --test tests/",
+    "test": "npm run build && node --test tests/*.test.mjs",
     "bundle": "node mcpb/build.mjs"
   },
   "engines": {

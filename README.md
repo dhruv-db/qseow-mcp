@@ -109,6 +109,26 @@ Every value-returning analytics tool ships a **trust envelope**: expression vali
 | `security_rule_audit` | Every security rule with decoded actions + lint findings (disabled defaults, wildcard filters, unconditional write grants) |
 | `list_user_sessions` / `end_user_sessions` | Active proxy sessions per user; force logout. Certificate-backed — see note below |
 
+### Qlik Cloud MCP parity + task lifecycle (fork `0.6.0-db.1`, not yet live-verified)
+
+Tools the official Qlik Cloud MCP server ships, mapped onto the Engine/QRS APIs. Task lifecycle encodings ported from [bintocher/qlik-sense-mcp](https://github.com/bintocher/qlik-sense-mcp) (MIT).
+
+| Tool | Cloud equivalent | What |
+|---|---|---|
+| `describe_app` | `qlik_describe_app` | Tables, sheets, master item / variable / bookmark counts in one call |
+| `search_field_values` | `qlik_search_field_values` | Which fields contain a value, across the whole app |
+| `get_chart_data` | `qlik_get_chart_data` | Data an existing object shows (straight, pivot, listbox) |
+| `list_bookmarks` / `apply_bookmark` | `qlik_list_bookmarks` / `qlik_select_bookmark` | Read + apply (session only) |
+| `create_bookmark` / `delete_bookmark` | same | Persisted, mutation-gated |
+| `create/update/delete_master_measure` | `qlik_*_measure` | Expression engine-validated before create/update |
+| `create/update/delete_master_dimension` | `qlik_*_dimension` | Several fields = drill-down group |
+| `get_task_executions` | `qlik_get_reload_status` | Reload task history, newest first |
+| `stop_task` | `qlik_cancel_app_reload` | `POST /qrs/task/stop/many` |
+| `list_task_schedules` / `create_task_schedule` / `delete_task_schedule` | — | Schedule triggers (wall-clock time zone, time windows) |
+| `create_reload_task` / `update_reload_task` / `delete_reload_task` | — | Task CRUD |
+
+Cloud-only surfaces (automations, glossary, data products, semantic models, datasets, knowledge bases, pipelines) have no QSEoW counterpart.
+
 Mutating tools (`set_script`, `reload_app`, `create_app`, `copy_app`, `publish_app`, `delete_app`, `start_task`, `end_user_sessions`, `create_sheet`, `add_sheet_object`) are **gated at registration**: unless `QSEOW_ALLOW_MUTATIONS=true`, they are never registered, so a read-only deployment advertises a genuinely read-only tool surface in `tools/list`. Default is read-only.
 
 Every tool carries MCP tool annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) so clients that honor them can apply their own policy — e.g. `reload_app`/`set_script`/`start_task` are flagged destructive; selection tools are non-destructive session-state mutations.

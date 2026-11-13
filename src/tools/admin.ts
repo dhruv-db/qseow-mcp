@@ -4,7 +4,7 @@ import type { QrsClient } from "../qrs.js";
 import type { Config } from "../config.js";
 import { text, redactSecrets, pageParams, paginate, guid } from "./shared.js";
 
-const TASK_STATUS: Record<number, string> = {
+export const TASK_STATUS: Record<number, string> = {
   0: "NeverStarted", 1: "Triggered", 2: "Started", 3: "Queued", 4: "AbortInitiated",
   5: "Aborting", 6: "Aborted", 7: "FinishedSuccess", 8: "FinishedFail", 9: "Skipped",
   10: "Retry", 11: "Error", 12: "Reset",

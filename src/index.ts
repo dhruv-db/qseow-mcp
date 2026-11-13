@@ -12,6 +12,8 @@ import { registerDeveloperTools } from "./tools/developer.js";
 import { registerInspectorTools } from "./tools/inspector.js";
 import { registerOpsTools } from "./tools/ops.js";
 import { registerBuilderTools } from "./tools/builder.js";
+import { registerParityTools } from "./tools/parity.js";
+import { registerTaskTools } from "./tools/tasks.js";
 
 // Single source of truth for the version: package.json (dist/ sits one level
 // below it both in the repo and in the npm tarball).
@@ -32,12 +34,17 @@ async function main(): Promise<void> {
     // Ops layer (Tier 2): reload forensics, engine health, security-rule
     // audit, QPS sessions. Read-only except end_user_sessions (mutation-gated).
     registerOpsTools(server, qrs, cfg, session);
+    // Reload-task lifecycle: history, stop, task + schedule CRUD.
+    registerTaskTools(server, qrs, cfg);
   }
   if (cfg.toolGroups.has("analyst")) {
     registerAnalystTools(server, engine);
     // The troubleshooting loop (sheets, objects, expression search, master
     // items, lineage) ships with the analyst group: read-only introspection.
     registerInspectorTools(server, engine);
+    // Qlik Cloud MCP parity: describe/search/chart data, bookmarks, master
+    // item CRUD. Reads always; persisted writes only with mutations enabled.
+    registerParityTools(server, engine, cfg);
   }
   if (cfg.toolGroups.has("developer")) {
     registerDeveloperTools(server, engine, qrs, cfg);
